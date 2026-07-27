@@ -19,7 +19,6 @@ import cv2
 import numpy as np
 from hp60c_camera import CameraReader
 from soarm_lab import arm
-from soarm_lab.grasp import approach_xy
 
 MODE = "grip_test"          # "grip_test" 로 그리퍼값부터 맞춘 뒤 "pick"
 REAL = True
@@ -34,8 +33,10 @@ Z_GRASP = 0.03              # 집을 때 손끝 높이(테이블 근처 — 실�
 Z_DROP = 0.06              # 놓을 때 손끝 높이
 
 # ── 파지 기하 ────────────────────────────────────────────────────────────────
-BALL_R = 0.02               # 공 반지름(m)
-APPROACH_MARGIN = 0.014     # 하강점을 공 옆에서 이만큼 띄움(grasp.approach_xy)
+# 순서: 공 뒤(베이스쪽)에서 hover 접근 → 앞으로(바깥으로) 이동 → 하강 → 집기.
+# radial(+)=베이스에서 바깥(앞) 방향. '덜 가서 집음' → GRASP_FWD 를 키운다.
+GRASP_FWD = 0.0             # 공 대비 앞으로 보정(m). 덜 가면 +로 키움(예: 0.01~0.03)
+APPROACH_BACK = 0.05        # 하강 전 공 뒤(베이스쪽)에서 이만큼 떨어져 접근(m)
 DROP_XY = (0.16, -0.12)     # 내려놓을 위치(로봇 xy) — 단일 공 테스트용 고정값
 
 # ── 속도/타이밍 ──────────────────────────────────────────────────────────────
@@ -120,21 +121,29 @@ def find_ball_xy(H):
                 return None
 
 
+def radial(xy, d):
+    """xy를 베이스→점 방향(바깥=+)으로 d(m) 옮긴다. d>0 앞으로, d<0 뒤로."""
+    x, y = xy
+    th = np.arctan2(y, x)
+    return x + d * np.cos(th), y + d * np.sin(th)
+
+
 def pick_place(obj_xy):
-    """공 xy를 집어 DROP_XY 로 옮기고 놓기. approach_xy 로 공 옆(베이스쪽)에서 하강."""
-    hx, hy = approach_xy(obj_xy, r=BALL_R, margin=APPROACH_MARGIN)   # 하강점(옆, 여유)
-    gx, gy = approach_xy(obj_xy, r=BALL_R, margin=0.0)              # 파지점(공에 붙임)
+    """공 뒤에서 접근 → 앞으로 이동 → 하강 → 집기 → 들기 → DROP_XY 로 이동 → 놓기."""
+    gx, gy = radial(obj_xy, GRASP_FWD)                 # 파지 xy(공 ± 앞뒤 보정)
+    hx, hy = radial((gx, gy), -APPROACH_BACK)          # 접근 xy(파지점 뒤=베이스쪽)
     px, py = DROP_XY
 
     grip(OPEN_FRAC)                       # 열고 시작
-    goto(hx, hy, Z_HOVER)                 # 공 옆 위로
-    goto(gx, gy, Z_GRASP)                 # 파지점으로 하강
-    grip(CLOSE_FRAC)                      # 닫기
-    goto(gx, gy, Z_HOVER)                 # 들기
-    goto(px, py, Z_HOVER)                 # 놓을 곳 위로
-    goto(px, py, Z_DROP)                  # 내리기
-    grip(OPEN_FRAC)                       # 놓기
-    goto(px, py, Z_HOVER)                 # 물러나기
+    goto(hx, hy, Z_HOVER)                 # ① 공 뒤 위로 접근
+    goto(gx, gy, Z_HOVER)                 # ② 앞으로 이동(파지점 위)
+    goto(gx, gy, Z_GRASP)                 # ③ 집게 내리기(하강)
+    grip(CLOSE_FRAC)                      # ④ 닫기
+    goto(gx, gy, Z_HOVER)                 # ⑤ 들기
+    goto(px, py, Z_HOVER)                 # ⑥ 놓을 곳 위로
+    goto(px, py, Z_DROP)                  # ⑦ 내리기
+    grip(OPEN_FRAC)                       # ⑧ 놓기
+    goto(px, py, Z_HOVER)                 # ⑨ 물러나기
     print("완료.")
 
 
