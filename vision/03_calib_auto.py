@@ -29,12 +29,15 @@ import numpy as np
 from hp60c_camera import CameraReader
 from soarm_lab import arm
 
-# ── 마커 HSV (그리퍼 끝에 붙인 색) ──────────────────────────────────────────
-# 기본은 초록(빨강/파랑 공과 겹치지 않게). hsv_tuner.py 로 "마커만 하얗게" 남긴
-# 값을 넣는다. 빨강 마커면 Hmin>Hmax(예: (160,120,80)/(10,255,255))로 적으면
-# 아래 detect_marker 가 색상환 양끝을 감싼다(OR).
-MARKER_LO = (40, 80, 60)
-MARKER_HI = (85, 255, 255)
+# ── 마커 색 (Lab, 조도에 강함) ──────────────────────────────────────────────
+# Lab: L=밝기, a=초록↔빨강, b=파랑↔노랑. 색을 a/b(색도)만으로 잡으면 조도가 바뀌어도
+# (주로 L 만 흔들림) HSV 보다 안정적이다. OpenCV 8bit Lab 은 L,a,b ∈ [0,255]
+# (a,b 는 128 이 무채색). 노랑=b 큼 · 빨강=a 큼 · 파랑=b 작음 · 초록=a 작음.
+# 기본값은 노랑 마커용. test_one 모드에서 마커를 클릭하면 그 픽셀의 (L,a,b)를 찍어주니
+# 그 값을 보고 아래 범위를 좁히면 된다.
+L_MIN = 40                  # 이 밝기 미만 제외(그림자/검정)
+A_RANGE = (100, 150)        # 노랑은 a 가 중앙(128) 근처
+B_RANGE = (150, 255)        # 노랑은 b 가 크다(핵심 채널)
 MIN_AREA = 150
 
 # ── 격자(로봇 좌표계, m) ────────────────────────────────────────────────────
@@ -47,6 +50,8 @@ Z_CAL = 0.10                # 캘리브 시 손끝 높이(m) — 테이블 위 �
 
 # ── 실물 동작 ───────────────────────────────────────────────────────────────
 REAL = False                # 먼저 False(시뮬 프리뷰)로 격자 확인 → True 로 실측
+TEST_ONE = False            # True + REAL=True: 중앙 한 점으로만 이동해 마커 검출 확인
+                            # (마커가 위에서 보이는지 · HSV 가 맞는지 점검용. 격자는 안 돎)
 SPEED = 500                 # 실물 서보 속도(작을수록 느림 · 안전)
 ACC = 20                    # 실물 가감속(작을수록 부드럽게)
 SETTLE_SEC = 1.2            # 이동 후 정지 대기(마커가 멈춘 뒤 검출)
@@ -55,18 +60,19 @@ DETECT_FRAMES = 8           # 검출 안정화를 위해 모을 프레임 수(�
 OUT = os.path.join("data", "H.npy")
 
 
-def detect_marker(bgr):
-    """마커 → (u, v, r). 못 찾으면 None. (02_detect 와 같은 HSV 로직, 빨강 wrap 지원)"""
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    lo, hi = MARKER_LO, MARKER_HI
-    if lo[0] <= hi[0]:
-        mask = cv2.inRange(hsv, lo, hi)
-    else:                                   # 색상환 양끝 감싸기(빨강 마커용)
-        mask = (cv2.inRange(hsv, (lo[0], lo[1], lo[2]), (179, hi[1], hi[2])) |
-                cv2.inRange(hsv, (0, lo[1], lo[2]), (hi[0], hi[1], hi[2])))
+def marker_mask(bgr):
+    """마커 Lab 마스크(공=흰색). L_MIN 이상 · a,b 가 범위 안인 픽셀만."""
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    mask = cv2.inRange(lab, (L_MIN, A_RANGE[0], B_RANGE[0]),
+                       (255, A_RANGE[1], B_RANGE[1]))
     kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kern)
-    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kern)      # 잔점 제거
+
+
+def detect_marker(bgr):
+    """마커 → (u, v, r). 못 찾으면 None."""
+    cnts, _ = cv2.findContours(marker_mask(bgr),
+                               cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         return None
     c = max(cnts, key=cv2.contourArea)
@@ -250,9 +256,56 @@ def verify(H):
                 return False
 
 
+def test_one():
+    """중앙 한 점으로 이동해 마커 검출을 라이브 확인. 왼쪽=원본, 오른쪽=마스크. q=종료.
+    마커를 클릭하면 그 픽셀의 (L,a,b)를 콘솔에 찍어준다 → A_RANGE/B_RANGE 튜닝에 사용."""
+    prep_real()
+    cx = (X_RANGE[0] + X_RANGE[1]) / 2
+    cy = (Y_RANGE[0] + Y_RANGE[1]) / 2
+    print(f"[안전] 작업면을 비우세요. 중앙점({cx:+.3f},{cy:+.3f})으로 이동합니다.")
+    input("준비되면 Enter > ")
+    arm.go([cx, cy, Z_CAL], real=True, down=True)
+    print("마커가 위에서 보이는지 · 오른쪽 마스크에 마커만 하얗게 잡히는지 확인. "
+          "마커 클릭=Lab값 출력. q 종료.")
+    win = "test-one (left=rgb / right=mask / click=Lab / q=quit)"
+    cv2.namedWindow(win)
+    samp = {}
+    cv2.setMouseCallback(win, lambda e, x, y, f, p:
+                         samp.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None)
+    with CameraReader() as cam:
+        last = 0
+        while True:
+            rgb, _d, last = cam.read_blocking(last)
+            if rgb is None:
+                continue
+            if "uv" in samp:                       # 클릭 픽셀의 Lab 출력(튜닝용)
+                x, y = samp.pop("uv")
+                if 0 <= y < rgb.shape[0] and 0 <= x < rgb.shape[1]:
+                    L, a, b = cv2.cvtColor(rgb, cv2.COLOR_BGR2LAB)[y, x]
+                    print(f"  클릭({x},{y}) Lab = (L {L}, a {a}, b {b})")
+            det = detect_marker(rgb)
+            if det is not None:
+                u, v, r = det
+                cv2.circle(rgb, (u, v), r, (0, 255, 255), 2)
+                cv2.drawMarker(rgb, (u, v), (0, 255, 255), cv2.MARKER_CROSS, 18, 2)
+                cv2.putText(rgb, f"marker ({u},{v})", (8, 24),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            else:
+                cv2.putText(rgb, "NO marker (윗면/축 위로 이동, Lab 범위 재튜닝)", (8, 24),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            mask = cv2.cvtColor(marker_mask(rgb), cv2.COLOR_GRAY2BGR)
+            cv2.imshow(win, np.hstack([rgb, mask]))
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    cv2.destroyWindow(win)
+
+
 def main():
     if not REAL:
         preview_sim()
+        return
+    if TEST_ONE:
+        test_one()
         return
 
     try:
