@@ -1,1 +1,8 @@
 /.venv
+
+# 캘리브레이션 산출물 — 로봇·카메라 설치마다 다르므로 공유하면 오히려 해롭다.
+# 새 환경에서는 sorting/README.md 의 '실측으로 맞춰야 하는 값' 을 따라 다시 만든다.
+data/H.npy
+data/safety_zone.json
+data/depth_baseline.npy
+data/stats/

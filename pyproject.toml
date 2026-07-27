@@ -6,12 +6,23 @@ build-backend = "setuptools.build_meta"
 name = "soarm-lab"
 version = "0.1.0"
 description = "SO-ARM101 실습 제공물 — 좌표 → IK → 시뮬/실물 제어"
-requires-python = ">=3.8"
+# sorting/ 이 dataclass 슬롯·PEP604 표기(`X | None`)를 쓰므로 3.10 이상이 필요하다.
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.20",
     "pyserial>=3.5",
     "mujoco>=3.0",
+    "opencv-python>=4.5",
 ]
 
+# 색 분류 스테이션(sorting/)에만 필요한 것. 기존 실습 코드만 쓸 사람은
+# 설치하지 않아도 된다.
+[project.optional-dependencies]
+gui = ["PySide6>=6.5"]
+dev = ["pytest>=7.0"]
+
 [tool.setuptools]
-packages = ["soarm_lab"]
+packages = ["soarm_lab", "sorting", "sorting.gui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
