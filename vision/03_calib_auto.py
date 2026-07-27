@@ -21,6 +21,7 @@ FK 를 전혀 읽지 않으므로 서보 원시값/홈오프셋 버그와 무관
 키(수집 중): 마커 자동검출되면 자동확정 · 클릭=수동확정 · n=이 점 건너뜀 · q=중단
 키(검증 중): s=저장 · q=취소
 """
+
 import os
 import time
 
@@ -35,27 +36,27 @@ from soarm_lab import arm
 # (a,b 는 128 이 무채색). 노랑=b 큼 · 빨강=a 큼 · 파랑=b 작음 · 초록=a 작음.
 # 기본값은 노랑 마커용. test_one 모드에서 마커를 클릭하면 그 픽셀의 (L,a,b)를 찍어주니
 # 그 값을 보고 아래 범위를 좁히면 된다.
-L_MIN = 40                  # 이 밝기 미만 제외(그림자/검정)
-A_RANGE = (100, 150)        # 노랑은 a 가 중앙(128) 근처
-B_RANGE = (150, 255)        # 노랑은 b 가 크다(핵심 채널)
+L_MIN = 40  # 이 밝기 미만 제외(그림자/검정)
+A_RANGE = (100, 150)  # 노랑은 a 가 중앙(128) 근처
+B_RANGE = (150, 255)  # 노랑은 b 가 크다(핵심 채널)
 MIN_AREA = 150
 
 # ── 격자(로봇 좌표계, m) ────────────────────────────────────────────────────
 # 관측된 작업범위 근처의 보수적 기본값. 시뮬 프리뷰에서 도달불가가 많으면 좁힌다.
-X_RANGE = (0.16, 0.28)      # 베이스에서 바깥 방향
-Y_RANGE = (-0.12, 0.12)     # 좌우
-NX, NY = 4, 4               # 격자 해상도(4x4=16점)
-Z_CAL = 0.10                # 캘리브 시 손끝 높이(m) — 테이블 위 안전한 hover
-                            # (탑다운이라 xy 매핑은 높이와 무관 → 파지 Z는 따로 정함)
+X_RANGE = (0.16, 0.28)  # 베이스에서 바깥 방향
+Y_RANGE = (-0.12, 0.12)  # 좌우
+NX, NY = 4, 4  # 격자 해상도(4x4=16점)
+Z_CAL = 0.10  # 캘리브 시 손끝 높이(m) — 테이블 위 안전한 hover
+# (탑다운이라 xy 매핑은 높이와 무관 → 파지 Z는 따로 정함)
 
 # ── 실물 동작 ───────────────────────────────────────────────────────────────
-REAL = False                # 먼저 False(시뮬 프리뷰)로 격자 확인 → True 로 실측
-TEST_ONE = False            # True + REAL=True: 중앙 한 점으로만 이동해 마커 검출 확인
-                            # (마커가 위에서 보이는지 · HSV 가 맞는지 점검용. 격자는 안 돎)
-SPEED = 500                 # 실물 서보 속도(작을수록 느림 · 안전)
-ACC = 20                    # 실물 가감속(작을수록 부드럽게)
-SETTLE_SEC = 1.2            # 이동 후 정지 대기(마커가 멈춘 뒤 검출)
-DETECT_FRAMES = 8           # 검출 안정화를 위해 모을 프레임 수(중앙값 사용)
+REAL = True  # 먼저 False(시뮬 프리뷰)로 격자 확인 → True 로 실측
+TEST_ONE = False  # True + REAL=True: 중앙 한 점으로만 이동해 마커 검출 확인
+# (마커가 위에서 보이는지 · HSV 가 맞는지 점검용. 격자는 안 돎)
+SPEED = 500  # 실물 서보 속도(작을수록 느림 · 안전)
+ACC = 20  # 실물 가감속(작을수록 부드럽게)
+SETTLE_SEC = 1.2  # 이동 후 정지 대기(마커가 멈춘 뒤 검출)
+DETECT_FRAMES = 8  # 검출 안정화를 위해 모을 프레임 수(중앙값 사용)
 
 OUT = os.path.join("data", "H.npy")
 
@@ -63,16 +64,18 @@ OUT = os.path.join("data", "H.npy")
 def marker_mask(bgr):
     """마커 Lab 마스크(공=흰색). L_MIN 이상 · a,b 가 범위 안인 픽셀만."""
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
-    mask = cv2.inRange(lab, (L_MIN, A_RANGE[0], B_RANGE[0]),
-                       (255, A_RANGE[1], B_RANGE[1]))
+    mask = cv2.inRange(
+        lab, (L_MIN, A_RANGE[0], B_RANGE[0]), (255, A_RANGE[1], B_RANGE[1])
+    )
     kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kern)      # 잔점 제거
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kern)  # 잔점 제거
 
 
 def detect_marker(bgr):
     """마커 → (u, v, r). 못 찾으면 None."""
-    cnts, _ = cv2.findContours(marker_mask(bgr),
-                               cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts, _ = cv2.findContours(
+        marker_mask(bgr), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
     if not cnts:
         return None
     c = max(cnts, key=cv2.contourArea)
@@ -88,7 +91,7 @@ def grid_points():
     ys = np.linspace(Y_RANGE[0], Y_RANGE[1], NY)
     pts = []
     for i, x in enumerate(xs):
-        row = ys if i % 2 == 0 else ys[::-1]    # 지그재그
+        row = ys if i % 2 == 0 else ys[::-1]  # 지그재그
         for y in row:
             pts.append((float(x), float(y)))
     return pts
@@ -98,7 +101,9 @@ def prep_real():
     """실물 서보 토크 켜고 속도/가속 낮춤(03_map 이 꺼둔 토크 복구 · 홱 방지)."""
     drv = arm._backend(True).drv
     if not drv.ping(1):
-        raise SystemExit("서보 응답 없음(id1) — 로봇 전원/케이블/포트 확인 후 다시 실행.")
+        raise SystemExit(
+            "서보 응답 없음(id1) — 로봇 전원/케이블/포트 확인 후 다시 실행."
+        )
     for sid in (1, 2, 3, 4, 5):
         drv.set_torque(sid, True)
         drv.set_acceleration(sid, ACC)
@@ -110,7 +115,7 @@ def median_detect(cam):
     t_end = time.monotonic() + SETTLE_SEC
     last = 0
     frame = None
-    while time.monotonic() < t_end:            # 이동 잔떨림 가라앉히기
+    while time.monotonic() < t_end:  # 이동 잔떨림 가라앉히기
         rgb, _d, last = cam.read_blocking(last)
         if rgb is not None:
             frame = rgb
@@ -123,9 +128,10 @@ def median_detect(cam):
         frame = rgb
         det = detect_marker(rgb)
         if det is not None:
-            us.append(det[0]); vs.append(det[1])
+            us.append(det[0])
+            vs.append(det[1])
         got += 1
-    if len(us) >= DETECT_FRAMES // 2:          # 절반 이상 검출돼야 신뢰
+    if len(us) >= DETECT_FRAMES // 2:  # 절반 이상 검출돼야 신뢰
         return frame, (int(np.median(us)), int(np.median(vs)))
     return frame, None
 
@@ -138,8 +144,12 @@ def collect_real():
     win = "calib (auto=confirm / click=manual / n=skip / q=abort)"
     cv2.namedWindow(win)
     click = {}
-    cv2.setMouseCallback(win, lambda e, x, y, f, p:
-                         click.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None)
+    cv2.setMouseCallback(
+        win,
+        lambda e, x, y, f, p: (
+            click.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None
+        ),
+    )
 
     print(f"[안전] 작업면을 비우세요. 로봇이 {len(pts)}개 격자점을 자동 이동합니다.")
     input("준비되면 Enter (중단은 이후 창에서 q) > ")
@@ -147,7 +157,7 @@ def collect_real():
     with CameraReader() as cam:
         for i, (x, y) in enumerate(pts):
             try:
-                arm.go([x, y, Z_CAL], real=True, down=True)   # 아래보기로 마커 일관 배치
+                arm.go([x, y, Z_CAL], real=True, down=True)  # 아래보기로 마커 일관 배치
             except ValueError as e:
                 print(f"[{i+1}/{len(pts)}] ({x:+.3f},{y:+.3f}) 도달불가 — 건너뜀: {e}")
                 unreachable.append((x, y))
@@ -157,28 +167,40 @@ def collect_real():
             frame, uv = median_detect(cam)
             # 검출/수동확정 루프 — 자동검출 성공이면 바로 확정, 아니면 클릭/스킵 대기
             while True:
-                disp = frame.copy() if frame is not None else np.zeros((480, 640, 3), np.uint8)
+                disp = (
+                    frame.copy()
+                    if frame is not None
+                    else np.zeros((480, 640, 3), np.uint8)
+                )
                 if uv is not None:
                     cv2.drawMarker(disp, uv, (0, 255, 255), cv2.MARKER_CROSS, 18, 2)
-                msg = f"[{i+1}/{len(pts)}] robot({x:+.3f},{y:+.3f})  " + \
-                      ("AUTO ok" if uv else "NO marker: click / n=skip")
-                cv2.putText(disp, msg, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
-                cv2.putText(disp, msg, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+                msg = f"[{i+1}/{len(pts)}] robot({x:+.3f},{y:+.3f})  " + (
+                    "AUTO ok" if uv else "NO marker: click / n=skip"
+                )
+                cv2.putText(
+                    disp, msg, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3
+                )
+                cv2.putText(
+                    disp, msg, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1
+                )
                 cv2.imshow(win, disp)
                 k = cv2.waitKey(30) & 0xFF
-                if "uv" in click:                       # 수동확정
-                    uv = click.pop("uv"); break
-                if uv is not None:                      # 자동확정
+                if "uv" in click:  # 수동확정
+                    uv = click.pop("uv")
                     break
-                if k == ord("n"):                       # 이 점 건너뜀
-                    uv = None; break
+                if uv is not None:  # 자동확정
+                    break
+                if k == ord("n"):  # 이 점 건너뜀
+                    uv = None
+                    break
                 if k == ord("q"):
                     raise KeyboardInterrupt
-                _f, uv = median_detect(cam)             # 다시 검출 시도
+                _f, uv = median_detect(cam)  # 다시 검출 시도
 
             if uv is not None:
                 print(f"[{i+1}/{len(pts)}] 픽셀{uv} <- 로봇({x:+.3f},{y:+.3f})")
-                pixels.append(uv); robots.append((x, y))
+                pixels.append(uv)
+                robots.append((x, y))
             else:
                 print(f"[{i+1}/{len(pts)}] 마커 미검출 — 건너뜀")
     cv2.destroyWindow(win)
@@ -208,17 +230,21 @@ def fit_and_report(pixels, robots):
     dst = np.float32(robots).reshape(-1, 1, 2)
     H, mask = cv2.findHomography(src, dst, cv2.RANSAC, ransacReprojThreshold=0.006)
     if H is None:
-        raise SystemExit("호모그래피 추정 실패 — 점이 부족하거나 일직선입니다. 격자를 넓히세요.")
+        raise SystemExit(
+            "호모그래피 추정 실패 — 점이 부족하거나 일직선입니다. 격자를 넓히세요."
+        )
     proj = cv2.perspectiveTransform(src, H).reshape(-1, 2)
-    errs = np.linalg.norm(proj - np.float32(robots), axis=1) * 1000.0   # mm
+    errs = np.linalg.norm(proj - np.float32(robots), axis=1) * 1000.0  # mm
     print("\n점별 재투영오차:")
     for (u, v), (x, y), e, m in zip(pixels, robots, errs, mask.ravel()):
         tag = "" if m else "  <-- RANSAC 이상치(제외됨)"
         print(f"  픽셀({u:4d},{v:4d}) -> ({x:+.3f},{y:+.3f})  오차 {e:5.1f}mm{tag}")
     inl = errs[mask.ravel() == 1]
-    print(f"\ninlier {int(mask.sum())}/{len(pixels)} · RMS {np.sqrt((inl**2).mean()):.1f}mm"
-          f" · 최대 {inl.max():.1f}mm",
-          "(양호)" if inl.max() < 8 else "(큼 — 격자를 더 넓게/촘촘히, 마커 검출 확인)")
+    print(
+        f"\ninlier {int(mask.sum())}/{len(pixels)} · RMS {np.sqrt((inl**2).mean()):.1f}mm"
+        f" · 최대 {inl.max():.1f}mm",
+        "(양호)" if inl.max() < 8 else "(큼 — 격자를 더 넓게/촘촘히, 마커 검출 확인)",
+    )
     return H, float(inl.max())
 
 
@@ -230,16 +256,22 @@ def verify(H):
     win = "verify: green=grid reprojection | s=save q=cancel"
     cv2.namedWindow(win)
     clicked = {}
-    cv2.setMouseCallback(win, lambda e, x, y, f, p:
-                         clicked.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None)
-    print("검증: 초록점이 실제 격자 위치와 맞는지 확인. 클릭하면 예측 로봇좌표 출력. s=저장 q=취소.")
+    cv2.setMouseCallback(
+        win,
+        lambda e, x, y, f, p: (
+            clicked.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None
+        ),
+    )
+    print(
+        "검증: 초록점이 실제 격자 위치와 맞는지 확인. 클릭하면 예측 로봇좌표 출력. s=저장 q=취소."
+    )
     with CameraReader() as cam:
         last = 0
         while True:
             rgb, _d, last = cam.read_blocking(last)
             if rgb is None:
                 continue
-            for (u, v) in px:
+            for u, v in px:
                 cv2.circle(rgb, (int(u), int(v)), 4, (0, 255, 0), -1)
             if "uv" in clicked:
                 u, v = clicked["uv"]
@@ -265,20 +297,26 @@ def test_one():
     print(f"[안전] 작업면을 비우세요. 중앙점({cx:+.3f},{cy:+.3f})으로 이동합니다.")
     input("준비되면 Enter > ")
     arm.go([cx, cy, Z_CAL], real=True, down=True)
-    print("마커가 위에서 보이는지 · 오른쪽 마스크에 마커만 하얗게 잡히는지 확인. "
-          "마커 클릭=Lab값 출력. q 종료.")
+    print(
+        "마커가 위에서 보이는지 · 오른쪽 마스크에 마커만 하얗게 잡히는지 확인. "
+        "마커 클릭=Lab값 출력. q 종료."
+    )
     win = "test-one (left=rgb / right=mask / click=Lab / q=quit)"
     cv2.namedWindow(win)
     samp = {}
-    cv2.setMouseCallback(win, lambda e, x, y, f, p:
-                         samp.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None)
+    cv2.setMouseCallback(
+        win,
+        lambda e, x, y, f, p: (
+            samp.update(uv=(x, y)) if e == cv2.EVENT_LBUTTONDOWN else None
+        ),
+    )
     with CameraReader() as cam:
         last = 0
         while True:
             rgb, _d, last = cam.read_blocking(last)
             if rgb is None:
                 continue
-            if "uv" in samp:                       # 클릭 픽셀의 Lab 출력(튜닝용)
+            if "uv" in samp:  # 클릭 픽셀의 Lab 출력(튜닝용)
                 x, y = samp.pop("uv")
                 if 0 <= y < rgb.shape[0] and 0 <= x < rgb.shape[1]:
                     L, a, b = cv2.cvtColor(rgb, cv2.COLOR_BGR2LAB)[y, x]
@@ -288,11 +326,25 @@ def test_one():
                 u, v, r = det
                 cv2.circle(rgb, (u, v), r, (0, 255, 255), 2)
                 cv2.drawMarker(rgb, (u, v), (0, 255, 255), cv2.MARKER_CROSS, 18, 2)
-                cv2.putText(rgb, f"marker ({u},{v})", (8, 24),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.putText(
+                    rgb,
+                    f"marker ({u},{v})",
+                    (8, 24),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 255),
+                    2,
+                )
             else:
-                cv2.putText(rgb, "NO marker (윗면/축 위로 이동, Lab 범위 재튜닝)", (8, 24),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                cv2.putText(
+                    rgb,
+                    "NO marker (윗면/축 위로 이동, Lab 범위 재튜닝)",
+                    (8, 24),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 255),
+                    2,
+                )
             mask = cv2.cvtColor(marker_mask(rgb), cv2.COLOR_GRAY2BGR)
             cv2.imshow(win, np.hstack([rgb, mask]))
             if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -318,9 +370,13 @@ def main():
 
     if unreachable:
         print(f"\n도달불가 {len(unreachable)}점:", unreachable)
-        print("→ 한쪽만 도달불가면 '매핑'이 아니라 로봇 '도달범위' 문제입니다(X/Y_RANGE 조정).")
+        print(
+            "→ 한쪽만 도달불가면 '매핑'이 아니라 로봇 '도달범위' 문제입니다(X/Y_RANGE 조정)."
+        )
     if len(pixels) < 4:
-        raise SystemExit(f"수집 {len(pixels)}점 < 4 — 캘리브 불가. 마커 색/격자범위를 확인하세요.")
+        raise SystemExit(
+            f"수집 {len(pixels)}점 < 4 — 캘리브 불가. 마커 색/격자범위를 확인하세요."
+        )
 
     H, worst = fit_and_report(pixels, robots)
 

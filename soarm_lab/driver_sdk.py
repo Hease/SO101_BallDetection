@@ -272,7 +272,7 @@ class JointStatus:
 class STS3215Driver:
     """Thread-safe driver for Feetech STS3215 servos on a half-duplex bus."""
 
-    def __init__(self, port: str = "/dev/ttyACM0",
+    def __init__(self, port: str = "/dev/ttyACM1",
                  baudrate: int = 1_000_000, timeout: float = 0.02):
         self.port = port
         self.baudrate = baudrate

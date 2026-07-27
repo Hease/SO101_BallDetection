@@ -6,7 +6,7 @@
 (검출이 안 되면 마우스 클릭으로 대체, q=취소). 로봇 xy 는 토크를 끄고 팔끝을 공에
 댄 뒤 관절각을 FK 로 읽어 얻는다. 결과 H 는 data/H.npy 로 저장되어 04_click_move /
 05_track 이 불러 쓴다.
-포트 /dev/ttyACM0 단독(컨트롤러 앱·다른 프로세스는 종료).
+포트 /dev/ttyACM1 단독(컨트롤러 앱·다른 프로세스는 종료).
 """
 import os
 
@@ -17,7 +17,7 @@ from soarm_lab.driver_sdk import STS3215Driver
 from soarm_lab.fk_core import FKSo101
 
 N = 4
-PORT = "/dev/ttyACM0"
+PORT = "/dev/ttyACM1"
 OUT = os.path.join("data", "H.npy")
 
 # 빨간공 HSV 검출용(02_detect / 05_track 과 동일 임계값; 자체완결 위해 인라인)
