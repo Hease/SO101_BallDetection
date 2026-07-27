@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/shm_bridge.dir/shm_bridge.cpp.o -o shm_bridge   -L/home/hease/soarm_provided_d/hp60c-camera/sdk/libs/lib/x86_64-linux-gnu  -Wl,-rpath,/home/hease/soarm_provided_d/hp60c-camera/sdk/libs/lib/x86_64-linux-gnu -lAngstrongCameraSdk -lpthread -lrt 

@@ -1,0 +1,3 @@
+/home/hease/soarm_provided_d/hp60c-camera/bridge/build/CMakeFiles/shm_bridge.dir
+/home/hease/soarm_provided_d/hp60c-camera/bridge/build/CMakeFiles/edit_cache.dir
+/home/hease/soarm_provided_d/hp60c-camera/bridge/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+hp60c_camera/__init__.py
+hp60c_camera/reader.py
+hp60c_camera.egg-info/PKG-INFO
+hp60c_camera.egg-info/SOURCES.txt
+hp60c_camera.egg-info/dependency_links.txt
+hp60c_camera.egg-info/requires.txt
+hp60c_camera.egg-info/top_level.txt
