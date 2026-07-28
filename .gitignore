@@ -1,2 +1,10 @@
 /.venv
-*/__pycache__
+__pycache__/
+*.pyc
+
+# 팀 공유 하드웨어 + 개인 브랜치: 사람마다 다른 설정/티칭 데이터는 커밋하지 않는다
+# (git switch 시 서로 덮어쓰기/충돌 방지)
+/data/local.json          # 개인 하드웨어 설정(포트·mock 여부)
+/data/solder_poses.json   # 개인 티칭 순서표
+/data/calibration.json    # 개인 로봇 캘리브레이션
+/data/H.npy               # 개인 카메라-로봇 캘리브레이션(각자 03 으로 재생성)
