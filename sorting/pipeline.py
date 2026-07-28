@@ -57,13 +57,16 @@ class SortingPipeline:
     def __init__(self, robot: RobotController, mapper: Mapper,
                  obs_source: ObsSource, stats=None,
                  on_event: EventSink | None = None,
-                 conf: cfg.RobotConfig | None = None):
+                 conf: cfg.RobotConfig | None = None,
+                 watchdog=None):
         self.robot = robot
         self.mapper = mapper
         self.obs_source = obs_source
         self.stats = stats
         self.on_event = on_event or (lambda name, data: None)
         self.conf = conf or cfg.ROBOT
+        # 딜레이 워치독. None 이면 지연 보호 없이 돈다(단위 테스트 편의).
+        self.watchdog = watchdog
 
         self.state = State.IDLE
         self._stop = False
@@ -87,10 +90,33 @@ class SortingPipeline:
 
     # ── 내부 ──────────────────────────────────────────────────────────────
     def _should_abort(self) -> bool:
-        """이동 한복판에서 즉시 멈춰야 하는가."""
+        """이동 한복판에서 즉시 멈춰야 하는가.
+
+        로봇의 도착 대기 루프가 20ms 마다 이걸 부른다. 침입 감지와 딜레이
+        워치독이 같은 통로를 쓰므로, 둘 중 무엇이든 동작 도중에 팔을 세운다.
+        """
         if self._stop or self._pause_requested:
             return True
+        if self.watchdog is not None and self.watchdog.should_abort():
+            return True
         return self.obs_source().intruded
+
+    def _wait_for_latency(self) -> bool:
+        """지연이 '보류' 이상이면 새 동작을 시작하지 않고 기다린다.
+
+        정지(LEVEL 3)와 달리 보류는 이미 하는 일을 끊지는 않는다 — 팔을 공중에
+        세우는 것보다 하던 동작을 마치고 서는 편이 안전하기 때문이다.
+        """
+        if self.watchdog is None:
+            return False
+        waited = False
+        while not self._stop and not self.watchdog.may_start_motion():
+            if not waited:
+                self._set_state(State.PAUSED,
+                                f"지연 {self.watchdog.status_text()} — 새 동작 보류")
+                waited = True
+            time.sleep(0.05)
+        return waited
 
     def _emit(self, name: str, **data) -> None:
         self.on_event(name, data)
@@ -122,6 +148,9 @@ class SortingPipeline:
             while not self._stop:
                 if self._handle_interrupt():
                     continue                      # 재개하면 SCAN 부터 다시
+                if self._wait_for_latency():
+                    self._set_state(State.SCAN, "지연 회복 — 장면 재확인")
+                    continue                      # 지연이 풀렸으면 다시 보고 시작
 
                 obs = self.obs_source()
                 target = self._choose_ball(obs)

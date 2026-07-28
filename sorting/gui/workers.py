@@ -30,9 +30,11 @@ class CameraWorker(QThread):
     sceneReady = Signal(object)      # (rgb, Scene, balls, intruded, fps)
     failed = Signal(str)
 
-    def __init__(self, source=None, safety: SafetyMonitor | None = None, parent=None):
+    def __init__(self, source=None, safety: SafetyMonitor | None = None,
+                 watchdog=None, parent=None):
         super().__init__(parent)
         self.source = source                  # None 이면 실제 카메라
+        self.watchdog = watchdog              # 프레임 지연을 여기에 보고한다
         self.safety = safety or SafetyMonitor.load()
         self.tracker = BallTracker()
         self._running = True
@@ -81,6 +83,10 @@ class CameraWorker(QThread):
             intruded = self.safety.update(depth)
 
             self._latency_ms = (time.monotonic() - t0) * 1000.0
+            if self.watchdog is not None:
+                # 프레임 한 장을 받아 처리하는 데 걸린 시간 = 카메라 경로의 지연.
+                # 워치독이 이 값으로 경고/보류/정지를 판단한다.
+                self.watchdog.report("camera", self._latency_ms)
             frame_times.append(t0)
             if len(frame_times) > 15:
                 frame_times.pop(0)
@@ -108,13 +114,14 @@ class PipelineWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, real: bool, slow: bool, obs_source, mapper,
-                 stats=None, parent=None):
+                 stats=None, watchdog=None, parent=None):
         super().__init__(parent)
         self.real = real
         self.slow = slow
         self.obs_source = obs_source
         self.mapper = mapper
         self.stats = stats
+        self.watchdog = watchdog
 
         self.robot = None
         self.pipeline: SortingPipeline | None = None
@@ -171,7 +178,7 @@ class PipelineWorker(QThread):
 
         self.pipeline = SortingPipeline(
             self.robot, self.mapper, self.obs_source,
-            stats=self.stats, on_event=self._on_event)
+            stats=self.stats, watchdog=self.watchdog, on_event=self._on_event)
         self.ready.emit()
 
         while self._running:

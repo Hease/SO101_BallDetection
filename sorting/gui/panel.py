@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QGroupBox,
                                QHBoxLayout, QLabel, QPushButton, QRadioButton,
-                               QVBoxLayout, QWidget)
+                               QSlider, QVBoxLayout, QWidget)
 
 JOINT_NAMES = ["베이스", "어깨", "팔꿈치", "손목", "회전", "그리퍼"]
 JOG_STEP_DEG = 5.0
@@ -36,6 +36,7 @@ class ControlPanel(QWidget):
     homeClicked = Signal()
     jogRequested = Signal(int, float)
     modeChanged = Signal(bool)          # True = 자동
+    injectDelayChanged = Signal(int)    # 데모용 지연 주입(ms)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -46,6 +47,7 @@ class ControlPanel(QWidget):
         layout.addWidget(self._build_status())
         layout.addWidget(self._build_buttons())
         layout.addWidget(self._build_mode())
+        layout.addWidget(self._build_delay())
         layout.addWidget(self._build_jog())
         layout.addWidget(self._build_stats())
         layout.addStretch(1)
@@ -62,9 +64,13 @@ class ControlPanel(QWidget):
         self.note_label.setStyleSheet("color:#8b949e;")
         self.safety_label = QLabel("")
         self.safety_label.setWordWrap(True)
-        v.addWidget(self.state_label)
-        v.addWidget(self.note_label)
-        v.addWidget(self.safety_label)
+        self.latency_label = QLabel("지연: —")
+        self.latency_label.setStyleSheet("color:#8b949e;")
+        self.calib_label = QLabel("")
+        self.calib_label.setWordWrap(True)
+        for w in (self.state_label, self.note_label, self.safety_label,
+                  self.latency_label, self.calib_label):
+            v.addWidget(w)
         return box
 
     def _build_buttons(self) -> QWidget:
@@ -79,7 +85,7 @@ class ControlPanel(QWidget):
         self.pause_btn.setCheckable(True)
         self.pause_btn.clicked.connect(self.pauseClicked)
 
-        self.estop_btn = QPushButton("■  비상정지 (E-STOP)")
+        self.estop_btn = QPushButton("■  비상정지 (E-STOP)   [Space]")
         self.estop_btn.setStyleSheet(
             "background:#8b1a1a; color:white; padding:14px; font-size:15px;"
             "font-weight:bold; border-radius:4px;")
@@ -106,6 +112,47 @@ class ControlPanel(QWidget):
         h.addWidget(self.auto_radio)
         h.addWidget(self.manual_radio)
         return box
+
+    def _build_delay(self) -> QWidget:
+        """데모용 지연 주입. 실제 지연과 같은 경로를 타므로 보호장치가 진짜로 돈다."""
+        box = QGroupBox("지연 주입 (데모)")
+        v = QVBoxLayout(box)
+
+        self.delay_slider = QSlider(Qt.Horizontal)
+        self.delay_slider.setRange(0, 2500)
+        self.delay_slider.setSingleStep(50)
+        self.delay_slider.setTickInterval(500)
+        self.delay_slider.setTickPosition(QSlider.TicksBelow)
+        self.delay_slider.valueChanged.connect(self._on_delay)
+
+        self.delay_label = QLabel("주입 0ms — 정상")
+        self.delay_label.setStyleSheet("font-family:monospace;")
+        v.addWidget(self.delay_slider)
+        v.addWidget(self.delay_label)
+        return box
+
+    def _on_delay(self, ms: int) -> None:
+        self.injectDelayChanged.emit(ms)
+
+    def set_latency(self, level_label: str, text: str, color: str) -> None:
+        """워치독 상태를 표시한다. 무엇이 얼마나 느린지까지 보여준다."""
+        self.latency_label.setText(f"지연: {text}")
+        self.latency_label.setStyleSheet(f"color:{color};")
+        injected = self.delay_slider.value()
+        self.delay_label.setText(
+            f"주입 {injected}ms — {level_label}" if injected else f"주입 0ms — {level_label}")
+
+    def set_calibration(self, missing: int, workspace_ok: bool) -> None:
+        """아직 안 잰 값이 몇 개인지, 작업영역이 있는지 알린다."""
+        if not workspace_ok:
+            self.calib_label.setText("⚠ 작업영역 미측정 — teach limits 필요")
+            self.calib_label.setStyleSheet("color:#e5534b;")
+        elif missing:
+            self.calib_label.setText(f"⚠ 미측정 값 {missing}개 (calib report)")
+            self.calib_label.setStyleSheet("color:#d29922;")
+        else:
+            self.calib_label.setText("● 캘리브레이션 완료")
+            self.calib_label.setStyleSheet("color:#3fb950;")
 
     def _build_jog(self) -> QWidget:
         box = QGroupBox("수동 조깅")

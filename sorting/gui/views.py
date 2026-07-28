@@ -63,6 +63,7 @@ class CameraView(ImagePanel):
         super().__init__("카메라 대기 중…\n(shm_bridge 를 실행했는지 확인)", parent)
         self.safety = None
         self.mapper = None
+        self.workspace = None       # 실측한 도달 한계. 있으면 화면에 그린다.
 
     def update_scene(self, rgb, scene, intruded: bool, depth=None,
                      fps: float = 0.0, latency_ms: float = 0.0) -> None:
@@ -73,6 +74,13 @@ class CameraView(ImagePanel):
                         for name, r in scene.regions.items()}
 
         frame = draw_scene(rgb, scene, robot_xy=robot_xy)
+
+        # 실측한 작업영역을 그린다 — '한계'를 말이 아니라 눈으로 보이게 하는 부분.
+        # 영역 밖의 공은 회색 X 로 표시해 왜 안 집는지 알 수 있게 한다.
+        if self.workspace is not None and self.mapper is not None:
+            self.workspace.draw(frame, self.mapper)
+            self._mark_unreachable(frame, scene)
+
         if self.safety is not None:
             frame = self.safety.draw(frame, depth)
 
@@ -82,6 +90,19 @@ class CameraView(ImagePanel):
             self._draw_intrusion_border(frame)
 
         self.show_pixmap(bgr_to_pixmap(frame))
+
+    def _mark_unreachable(self, frame, scene) -> None:
+        """작업영역 밖의 공에 회색 X — 검출은 됐지만 안 집는 이유를 보여준다."""
+        import cv2
+        for ball in scene.balls:
+            x, y = self.mapper.to_robot(ball.u, ball.v)
+            if self.workspace.check(x, y, self.workspace.z_min).ok:
+                continue
+            cv2.drawMarker(frame, (ball.u, ball.v), (150, 150, 150),
+                           cv2.MARKER_TILTED_CROSS, ball.r * 2, 3)
+            for color, thick in (((0, 0, 0), 3), ((180, 180, 180), 1)):
+                cv2.putText(frame, "범위 밖", (ball.u - 24, ball.v + ball.r + 16),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, thick, cv2.LINE_AA)
 
     @staticmethod
     def _draw_perf(frame, fps, latency_ms, ball_count) -> None:

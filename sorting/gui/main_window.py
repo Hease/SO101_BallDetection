@@ -7,13 +7,17 @@
 """
 from __future__ import annotations
 
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                                QSplitter, QVBoxLayout, QWidget)
 
+from .. import calib
 from ..mapping import Mapper
 from ..safety import SafetyMonitor
 from ..stats import SessionStats
+from ..watchdog import LatencyWatchdog
+from ..workspace import Workspace
 from .panel import ControlPanel
 from .views import CameraView, TwinView
 from .workers import CameraWorker, PipelineWorker
@@ -39,6 +43,8 @@ class MainWindow(QMainWindow):
         self.stats = SessionStats()
         self.safety = SafetyMonitor.load()
         self.mapper = self._load_mapper()
+        self.watchdog = LatencyWatchdog()
+        self.workspace = Workspace.load()
 
         self._build_ui()
         self._start_workers(real, slow, camera_source)
@@ -52,6 +58,7 @@ class MainWindow(QMainWindow):
         self.camera_view = CameraView()
         self.camera_view.safety = self.safety
         self.camera_view.mapper = self.mapper
+        self.camera_view.workspace = self.workspace
         self.twin_view = TwinView()
 
         for widget, title in ((self.camera_view, "카메라 — 검출 결과"),
@@ -74,12 +81,18 @@ class MainWindow(QMainWindow):
         self.panel.homeClicked.connect(lambda: self.pipeline_worker.request_home())
         self.panel.jogRequested.connect(
             lambda j, d: self.pipeline_worker.request_jog(j, d))
+        self.panel.injectDelayChanged.connect(self.watchdog.inject)
 
         root.addWidget(views, stretch=1)
         root.addWidget(self.panel)
         self.setCentralWidget(central)
 
         self.statusBar().showMessage("준비 중…")
+
+        # E-STOP 단축키 — 마우스로 버튼을 찾다 늦는 상황을 없앤다.
+        # Space 와 Esc 둘 다 받는다(손이 어디 있든 누를 수 있게).
+        for key in ("Space", "Esc"):
+            QShortcut(QKeySequence(key), self, activated=self._on_estop)
 
         if self.mapper is None:
             self.panel.log("⚠ H.npy 없음 — 로봇 이동 불가 (calibrate 먼저)")
@@ -92,7 +105,8 @@ class MainWindow(QMainWindow):
 
     # ── 스레드 ────────────────────────────────────────────────────────────
     def _start_workers(self, real: bool, slow: bool, camera_source) -> None:
-        self.camera_worker = CameraWorker(source=camera_source, safety=self.safety)
+        self.camera_worker = CameraWorker(source=camera_source, safety=self.safety,
+                                          watchdog=self.watchdog)
         self.camera_worker.sceneReady.connect(self._on_scene)
         self.camera_worker.failed.connect(self._on_camera_failed)
         self.camera_worker.start()
@@ -100,7 +114,7 @@ class MainWindow(QMainWindow):
         self.pipeline_worker = PipelineWorker(
             real=real, slow=slow,
             obs_source=self.camera_worker.latest,
-            mapper=self.mapper, stats=self.stats)
+            mapper=self.mapper, stats=self.stats, watchdog=self.watchdog)
         self.pipeline_worker.stateChanged.connect(self.panel.set_state)
         self.pipeline_worker.jointsChanged.connect(self.twin_view.update_joints)
         self.pipeline_worker.event.connect(self._on_event)
@@ -129,6 +143,12 @@ class MainWindow(QMainWindow):
 
     def _refresh_stats(self) -> None:
         self.panel.set_stats(self.stats.summary_lines())
+
+        level = self.watchdog.level
+        color = {0: "#3fb950", 1: "#d29922", 2: "#e5534b", 3: "#f85149"}[int(level)]
+        self.panel.set_latency(level.label, self.watchdog.status_text(), color)
+        self.panel.set_calibration(len(calib.STORE.missing()),
+                                   self.workspace is not None)
         robot = getattr(self.pipeline_worker, "robot", None)
         if robot is not None:
             self.panel.set_estopped(robot.estopped)

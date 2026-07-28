@@ -99,9 +99,14 @@ class RobotController:
         self._last_deg = list(self.conf.home_pose_deg)
 
         # 이동 도중 "지금 당장 멈춰야 하나?"를 물어보는 훅. 파이프라인이 침입
-        # 감지를 여기 연결한다. 이게 없으면 팔이 한 번 움직이기 시작한 뒤로는
-        # 그 동작이 끝날 때까지 손이 들어와도 알아채지 못한다.
+        # 감지와 딜레이 워치독을 여기 연결한다. 이게 없으면 팔이 한 번 움직이기
+        # 시작한 뒤로는 그 동작이 끝날 때까지 손이 들어와도 알아채지 못한다.
         self.should_abort = None
+
+        # 실측한 작업영역. 아직 안 쟀으면 None 이고, 그 경우 이 층의 검사는
+        # 건너뛴다(IK 잔차와 관절 클램프는 그대로 남는다).
+        from .workspace import Workspace
+        self.workspace = Workspace.load()
 
         if not real:
             os.environ.setdefault("SOARM_HEADLESS", "1")   # 트윈은 GUI가 따로 그린다
@@ -217,15 +222,35 @@ class RobotController:
         return actual > self.conf.grip_empty_pct
 
     # ── 이동 ──────────────────────────────────────────────────────────────
+    def check_workspace(self, xyz):
+        """실측 작업영역으로 좌표를 검사한다. 아직 안 쟀으면 None.
+
+        측정 전에 그럴듯한 기본 영역을 지어내지 않는다 — 없는 한계를 있는 척하면
+        "한계 검사가 돌고 있다"고 착각하게 된다. GUI 가 미측정을 눈에 띄게 알린다.
+        """
+        if self.workspace is None:
+            return None
+        return self.workspace.check(float(xyz[0]), float(xyz[1]), float(xyz[2]))
+
     def move_to(self, xyz, down: bool = False, wait: bool = True) -> None:
         """손끝을 좌표로. 도착할 때까지 기다린다(wait=False 면 명령만).
 
-        soarm_lab 의 IK 가 못 푸는 좌표는 OutOfReach 로 바꿔 올린다 — 팔 범위
-        밖의 공 하나 때문에 사이클 전체가 죽으면 안 되기 때문이다.
+        **3중 방어를 여기서 순서대로 통과시킨다.** 각 층이 잡는 것이 다르다.
+
+          ① 실측 작업영역 — IK 를 부르기 *전에* 거절한다. 빠르고 예측 가능하며
+             무엇보다 화면에 그릴 수 있다. IK 는 반경 0.44m 까지 잔차 0mm 로
+             풀어내므로 이 층이 없으면 사실상 한계가 없다.
+          ② IK 잔차(`OutOfReach`) — 영역 안이지만 그 자세로는 못 푸는 경우.
+          ③ 관절 클램프(`RealBackend._clamp_arm`) — 최후 방어, 벤더 코드에 이미 있음.
         """
         if self._estopped:
             return
-        try:
+
+        verdict = self.check_workspace(xyz)                  # ① 실측 영역
+        if verdict is not None and not verdict.ok:
+            raise OutOfReach(verdict.reason)
+
+        try:                                                 # ② IK 잔차
             angles_deg, _err = self.arm.go(list(xyz), real=self.real, down=down)
         except ValueError as exc:
             raise OutOfReach(str(exc)) from exc
