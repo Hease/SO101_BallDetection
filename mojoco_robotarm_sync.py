@@ -15,8 +15,8 @@ mojoco_robotarm_sync.py — MuJoCo 시뮬 팔 ↔ 실물 SO-ARM101 를 'IK 핸�
 
 실행:
   python mojoco_robotarm_sync.py                 # 시뮬만 (하드웨어 없이 연습)
-  python mojoco_robotarm_sync.py --real          # 시뮬 + 실물 동시 (/dev/ttyACM0)
-  python mojoco_robotarm_sync.py --real --port /dev/ttyACM1
+  python mojoco_robotarm_sync.py --real          # 시뮬 + 실물 동시 (/dev/ttyACM1)
+  python mojoco_robotarm_sync.py --real --port /dev/ttyACM0
 """
 import argparse
 import time
@@ -45,7 +45,7 @@ def build_model_with_handle(start_xyz):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--real", action="store_true", help="실물 팔에도 같이 명령")
-    ap.add_argument("--port", default="/dev/ttyACM0", help="실물 시리얼 포트")
+    ap.add_argument("--port", default="/dev/ttyACM1", help="실물 시리얼 포트")
     ap.add_argument("--real-hz", type=float, default=20.0,
                     help="실물로 명령 보내는 주기(Hz). 너무 높이면 시리얼이 막힌다")
     args = ap.parse_args()
