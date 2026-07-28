@@ -103,18 +103,17 @@ class PipelineWorker(QThread):
 
     stateChanged = Signal(str, str)          # (상태, 설명)
     jointsChanged = Signal(object)           # 관절각 6개 → 3D 트윈
-    event = Signal(str, object)              # 그 밖의 사건 (sorted/skip/ceremony/...)
+    event = Signal(str, object)              # 그 밖의 사건 (sorted/skip/complete/...)
     ready = Signal()
     failed = Signal(str)
 
     def __init__(self, real: bool, slow: bool, obs_source, mapper,
-                 sound=None, stats=None, parent=None):
+                 stats=None, parent=None):
         super().__init__(parent)
         self.real = real
         self.slow = slow
         self.obs_source = obs_source
         self.mapper = mapper
-        self.sound = sound
         self.stats = stats
 
         self.robot = None
@@ -172,7 +171,7 @@ class PipelineWorker(QThread):
 
         self.pipeline = SortingPipeline(
             self.robot, self.mapper, self.obs_source,
-            sound=self.sound, stats=self.stats, on_event=self._on_event)
+            stats=self.stats, on_event=self._on_event)
         self.ready.emit()
 
         while self._running:

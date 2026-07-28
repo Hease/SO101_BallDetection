@@ -66,6 +66,10 @@ class FakeWorld:
             self.balls.pop(0)
 
 
+# 이 파일은 전부 느린 테스트다 — 헤드리스 MuJoCo 로 실제 IK·물리를 거친다.
+# 빠른 피드백이 필요할 땐  pytest -m "not slow"
+pytestmark = pytest.mark.slow
+
 @pytest.fixture
 def robot():
     r = RobotController(real=False)
@@ -104,7 +108,7 @@ def test_sorts_until_empty(robot):
     assert pipe.state is State.DONE
     assert stats.total == 2, f"2개를 분류해야 하는데 {stats.total}개"
     assert stats.per_color == {"red": 1, "blue": 1}
-    assert any(n == "ceremony" for n, _ in events)
+    assert any(n == "complete" for n, _ in events)
 
 
 def test_place_follows_moved_bin(robot):

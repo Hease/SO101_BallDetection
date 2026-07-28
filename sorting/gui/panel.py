@@ -17,11 +17,11 @@ GRIP_STEP_PCT = 10.0
 
 _STATE_KO = {
     "idle": "대기", "scan": "탐색 중", "pick": "집는 중", "verify": "확인 중",
-    "place": "놓는 중", "paused": "일시정지", "ceremony": "완료 세리머니",
+    "place": "놓는 중", "paused": "일시정지",
     "done": "완료",
 }
 _STATE_COLOR = {
-    "paused": "#e5534b", "done": "#3fb950", "ceremony": "#d29922",
+    "paused": "#e5534b", "done": "#3fb950",
     "idle": "#8b949e",
 }
 

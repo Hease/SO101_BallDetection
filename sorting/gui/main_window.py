@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QMessageBox,
 from ..mapping import Mapper
 from ..safety import SafetyMonitor
 from ..stats import SessionStats
-from .ceremony import CeremonyOverlay
 from .panel import ControlPanel
 from .views import CameraView, TwinView
 from .workers import CameraWorker, PipelineWorker
@@ -25,19 +24,19 @@ _EVENT_TEXT = {
     "grasp_failed": lambda d: f"파지 실패 — 재시도 {d['attempt'] + 1}",
     "target": lambda d: f"→ {d['color']} 공 ({d['robot'][0]:+.3f}, {d['robot'][1]:+.3f})",
     "error": lambda d: f"오류: {d['message']}",
+    "complete": lambda d: f"■ 분류 완료 — 총 {d['count']}개",
 }
 
 
 class MainWindow(QMainWindow):
     def __init__(self, real: bool = False, slow: bool = False,
-                 camera_source=None, sound=None):
+                 camera_source=None):
         super().__init__()
         self.setWindowTitle(
             f"SO-ARM101 색 분류 스테이션 — {'실물' if real else '시뮬'}")
         self.resize(1280, 720)
 
         self.stats = SessionStats()
-        self.sound = sound
         self.safety = SafetyMonitor.load()
         self.mapper = self._load_mapper()
 
@@ -80,7 +79,6 @@ class MainWindow(QMainWindow):
         root.addWidget(self.panel)
         self.setCentralWidget(central)
 
-        self.ceremony = CeremonyOverlay(central)
         self.statusBar().showMessage("준비 중…")
 
         if self.mapper is None:
@@ -102,7 +100,7 @@ class MainWindow(QMainWindow):
         self.pipeline_worker = PipelineWorker(
             real=real, slow=slow,
             obs_source=self.camera_worker.latest,
-            mapper=self.mapper, sound=self.sound, stats=self.stats)
+            mapper=self.mapper, stats=self.stats)
         self.pipeline_worker.stateChanged.connect(self.panel.set_state)
         self.pipeline_worker.jointsChanged.connect(self.twin_view.update_joints)
         self.pipeline_worker.event.connect(self._on_event)
@@ -125,10 +123,6 @@ class MainWindow(QMainWindow):
         self.panel.set_safety(self.safety.enabled, intruded)
 
     def _on_event(self, name: str, data: dict) -> None:
-        if name == "ceremony":
-            self.ceremony.show_ceremony(
-                data.get("count", 0),
-                "  ·  ".join(self.stats.summary_lines()[:2]))
         formatter = _EVENT_TEXT.get(name)
         if formatter:
             self.panel.log(formatter(data))
@@ -154,8 +148,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if answer != QMessageBox.Yes:
                 return
-        if self.sound is not None:
-            self.sound.play("start")
         self.pipeline_worker.request_start()
 
     def _on_pause(self) -> None:
@@ -201,6 +193,4 @@ class MainWindow(QMainWindow):
                 print("통계 저장:", json_path)
             except Exception as exc:
                 print("통계 저장 실패:", exc)
-        if self.sound is not None:
-            self.sound.close()
         super().closeEvent(event)

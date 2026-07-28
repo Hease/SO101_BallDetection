@@ -29,9 +29,6 @@ def parse_args(argv):
                     help="저속 동작. 실물 첫 실행에는 반드시 켜세요")
     ap.add_argument("--replay", metavar="경로",
                     help="카메라 대신 저장된 사진 사용 (폴더 또는 glob)")
-    ap.add_argument("--no-sound", action="store_true", help="부저 사용 안 함")
-    ap.add_argument("--pc-sound", action="store_true",
-                    help="부저 대신 PC 스피커로 소리내기")
     return ap.parse_args(argv)
 
 
@@ -45,15 +42,8 @@ def main(argv=None) -> int:
 
     from PySide6.QtWidgets import QApplication
 
-    from sorting import config as cfg
     from sorting.gui.main_window import MainWindow
     from sorting.replay import ReplaySource
-    from sorting.sound import make_backend
-
-    sound = None
-    if not args.no_sound:
-        sound = make_backend(cfg.SOUND, prefer_pc=args.pc_sound)
-        print("[sound]", sound.describe)
 
     camera_source = ReplaySource(args.replay) if args.replay else None
 
@@ -63,7 +53,7 @@ def main(argv=None) -> int:
 
     app = QApplication(sys.argv[:1])
     window = MainWindow(real=real, slow=args.slow,
-                        camera_source=camera_source, sound=sound)
+                        camera_source=camera_source)
     window.show()
     return app.exec()
 

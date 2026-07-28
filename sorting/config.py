@@ -161,17 +161,6 @@ class RobotConfig:
 ROBOT = RobotConfig()
 
 
-# ── 사운드 ─────────────────────────────────────────────────────────────────
-@dataclass
-class SoundConfig:
-    port: str | None = None         # None 이면 자동 탐색, 못 찾으면 무음 동작
-    baud: int = 115200
-    enabled: bool = True
-
-
-SOUND = SoundConfig()
-
-
 # ── GUI ────────────────────────────────────────────────────────────────────
 @dataclass
 class GuiConfig:

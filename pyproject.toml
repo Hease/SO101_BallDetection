@@ -26,3 +26,11 @@ packages = ["soarm_lab", "sorting", "sorting.gui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 느린 테스트(실제 MuJoCo 물리·Qt 이벤트루프를 기다리는 것)에 slow 를 붙인다.
+#   pytest -m "not slow"   → 몇 초. 개발 중에는 이걸 쓴다.
+#   pytest                 → 전체 회귀. 커밋 전에 한 번.
+# 요구사항이 갑자기 바뀌어 급히 고쳐야 할 때, 5초 피드백과 100초 피드백은
+# 완전히 다른 작업이 된다. 그래서 빠른 레인을 따로 둔다.
+markers = [
+    "slow: 실제 물리·이벤트루프를 기다리는 테스트 (pytest -m 'not slow' 로 제외)",
+]

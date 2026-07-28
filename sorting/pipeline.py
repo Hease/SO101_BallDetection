@@ -5,7 +5,7 @@
     PICK → 옆으로 접근해 집기
     VERIFY → 진짜 잡혔나 확인 (아니면 재시도)
     PLACE → **그 순간 다시 검출한** bin 좌표로 옮겨 놓기
-    → 공이 없어질 때까지 반복 → CEREMONY
+    → 공이 없어질 때까지 반복 → 완료(안전 자세 복귀)
 
 PLACE 에서 bin 좌표를 매번 새로 읽는 게 이 과제의 핵심이다. 어디에도 bin 위치를
 저장해두지 않으므로, 사이클 도중 사람이 bin 을 옮겨도 다음 공은 새 자리로 간다.
@@ -33,7 +33,6 @@ class State(str, Enum):
     VERIFY = "verify"
     PLACE = "place"
     PAUSED = "paused"        # 사람 손 감지로 멈춘 상태
-    CEREMONY = "ceremony"
     DONE = "done"
 
 
@@ -56,13 +55,12 @@ class SortingPipeline:
     """
 
     def __init__(self, robot: RobotController, mapper: Mapper,
-                 obs_source: ObsSource, sound=None, stats=None,
+                 obs_source: ObsSource, stats=None,
                  on_event: EventSink | None = None,
                  conf: cfg.RobotConfig | None = None):
         self.robot = robot
         self.mapper = mapper
         self.obs_source = obs_source
-        self.sound = sound
         self.stats = stats
         self.on_event = on_event or (lambda name, data: None)
         self.conf = conf or cfg.ROBOT
@@ -101,10 +99,6 @@ class SortingPipeline:
         self.state = state
         self._emit("state", state=state.value, note=note)
 
-    def _play(self, tune: str) -> None:
-        if self.sound is not None:
-            self.sound.play(tune)
-
     def _bin_xy(self, color: str, obs: Observation) -> tuple[float, float] | None:
         """그 색 bin 의 **현재** 로봇 좌표. 없으면 None.
 
@@ -132,9 +126,7 @@ class SortingPipeline:
                 obs = self.obs_source()
                 target = self._choose_ball(obs)
                 if target is None:
-                    self._set_state(State.CEREMONY, f"{sorted_count}개 분류 완료")
-                    self._ceremony(sorted_count)
-                    self._set_state(State.DONE)
+                    self._finish(sorted_count)
                     return
 
                 if self._run_cycle(target, obs):
@@ -155,8 +147,6 @@ class SortingPipeline:
         reason = "사람 감지" if obs.intruded else "일시정지"
         self.robot.estop()
         self._set_state(State.PAUSED, reason)
-        if obs.intruded:
-            self._play("warn")
 
         while not self._stop:
             obs = self.obs_source()
@@ -167,7 +157,6 @@ class SortingPipeline:
         if self._stop:
             return True
 
-        self._play("resume")
         self.robot.release_estop()
         # 재개는 SCAN 부터 — 사람이 손을 넣었다면 공이나 bin 이 움직였을 수 있다.
         # 못 집던 공을 사람이 바로 놓아줬을 수도 있으니 포기 목록도 비운다.
@@ -259,17 +248,15 @@ class SortingPipeline:
 
         elapsed = time.monotonic() - started
         self._emit("sorted", color=ball.color, seconds=elapsed)
-        self._play("pick_ok")
         if self.stats is not None:
             self.stats.record_success(ball.color, elapsed)
         return True
 
-    def _ceremony(self, count: int) -> None:
-        """분류 완료 — 소리·동작·화면이 함께 터진다."""
-        self._emit("ceremony", count=count)
-        self._play("victory")
+    def _finish(self, count: int) -> None:
+        """분류할 공이 더 없다 — 팔을 안전 자세로 되돌리고 끝낸다."""
+        self._emit("complete", count=count)
         try:
-            self.robot.celebrate()
             self.robot.home()
         except OutOfReach:
             pass
+        self._set_state(State.DONE, f"{count}개 분류 완료")

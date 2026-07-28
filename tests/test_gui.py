@@ -20,10 +20,13 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QEventLoop, QTimer                       # noqa: E402
 from PySide6.QtWidgets import QApplication                          # noqa: E402
 
-from sorting.gui.ceremony import CeremonyOverlay                    # noqa: E402
 from sorting.gui.views import CameraView, TwinView, bgr_to_pixmap   # noqa: E402
 from sorting.replay import ReplaySource                              # noqa: E402
 from sorting.vision import observe                                   # noqa: E402
+
+# 이 파일은 전부 느린 테스트다 — Qt 이벤트루프와 스레드 기동을 실제로 기다린다.
+# 빠른 피드백이 필요할 땐  pytest -m "not slow"
+pytestmark = pytest.mark.slow
 
 SHOTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                      "shots")
@@ -81,26 +84,6 @@ def test_twin_renders_joint_angles(app):
     twin.close_renderer()
 
 
-def test_ceremony_runs_and_finishes(app):
-    """세리머니가 재생되고 스스로 끝나며 finished 를 쏘는가."""
-    from PySide6.QtWidgets import QWidget
-    parent = QWidget()
-    parent.resize(800, 600)
-    parent.show()                                 # 부모가 숨어 있으면 자식도 못 보인다
-    overlay = CeremonyOverlay(parent)
-
-    done: list[bool] = []
-    overlay.finished.connect(lambda: done.append(True))
-
-    overlay.show_ceremony(7, "성공률 100%")
-    assert overlay.isVisible()
-    _spin(300)
-    assert overlay._pieces, "컨페티가 만들어져야 한다"
-
-    _spin(4200)                                   # DURATION_MS 보다 조금 길게
-    assert done == [True], "세리머니가 끝나면서 finished 를 쏘지 않았다"
-    assert not overlay.isVisible(), "끝나면 숨어야 화면을 가리지 않는다"
-
 
 def test_full_window_starts_and_stops_cleanly(app, tmp_path):
     """창을 띄우면 두 워커가 돌고, 닫으면 둘 다 깨끗이 멈춘다.
@@ -109,11 +92,9 @@ def test_full_window_starts_and_stops_cleanly(app, tmp_path):
     창을 닫았는데 터미널이 안 돌아오는 그 상황이다.
     """
     from sorting.gui.main_window import MainWindow
-    from sorting.sound import NullBackend
 
     window = MainWindow(real=False, slow=False,
-                        camera_source=ReplaySource(SHOTS, fps=25),
-                        sound=NullBackend("테스트"))
+                        camera_source=ReplaySource(SHOTS, fps=25))
     window.resize(1024, 640)
     window.show()
 
@@ -132,39 +113,13 @@ def test_full_window_starts_and_stops_cleanly(app, tmp_path):
     assert not window.pipeline_worker.isRunning(), "로봇 스레드가 안 멈췄다"
 
 
-def test_ceremony_fires_from_pipeline_event(app):
-    """파이프라인이 'ceremony' 사건을 쏘면 실제로 화면 효과가 뜨는가.
-
-    세리머니 위젯이 혼자 잘 도는 것과, 상태머신에서 거기까지 신호가 이어지는
-    것은 다른 문제다. 배선이 끊겨 있으면 로봇만 춤추고 화면은 조용하다.
-    """
-    from sorting.gui.main_window import MainWindow
-    from sorting.sound import NullBackend
-
-    sound = NullBackend("테스트")
-    window = MainWindow(real=False, slow=False,
-                        camera_source=ReplaySource(SHOTS, fps=25),
-                        sound=sound)
-    window.show()
-    _spin(1500)
-
-    assert not window.ceremony.isVisible()
-    window._on_event("ceremony", {"count": 5})     # 파이프라인이 쏘는 것과 같은 신호
-    assert window.ceremony.isVisible(), "완료 신호가 화면 세리머니로 이어지지 않았다"
-    assert "5" in window.ceremony._title
-
-    window.close()
-    _spin(500)
-
 
 def test_estop_reaches_robot_without_waiting_for_worker(app):
     """E-STOP 은 워커 차례를 기다리지 않고 즉시 로봇에 닿아야 한다."""
     from sorting.gui.main_window import MainWindow
-    from sorting.sound import NullBackend
 
     window = MainWindow(real=False, slow=False,
-                        camera_source=ReplaySource(SHOTS, fps=25),
-                        sound=NullBackend("테스트"))
+                        camera_source=ReplaySource(SHOTS, fps=25))
     window.show()
     _spin(2500)
     assert window.pipeline_worker.robot is not None
