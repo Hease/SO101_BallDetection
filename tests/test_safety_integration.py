@@ -11,7 +11,6 @@ import threading
 
 import pytest
 
-from sorting import calib
 from sorting.pipeline import SortingPipeline, State
 from sorting.watchdog import CAMERA, LatencyWatchdog, Level, Thresholds
 from sorting.workspace import Workspace
@@ -19,13 +18,6 @@ from sorting.workspace import Workspace
 from .fakes import FakeRobot, FakeWorld, fake_mapper
 
 TH = Thresholds(warn_ms=300, hold_ms=800, stop_ms=1500, recover_samples=2)
-
-
-@pytest.fixture(autouse=True)
-def isolated_store(tmp_path, monkeypatch):
-    store = calib.CalibStore(path=str(tmp_path / "calibration.json"))
-    monkeypatch.setattr(calib, "STORE", store)
-    return store
 
 
 # ── 도달 한계가 실제로 집행되는가 ──────────────────────────────────────────

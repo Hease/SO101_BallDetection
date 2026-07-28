@@ -79,6 +79,15 @@ HSV 시절에는 과자봉지도 '빨강' 마스크를 그냥 통과해서, 공�
 - **캘리브레이션이 클릭 한 번이다.** 슬라이더 6개(H/S/V 상·하한) 대신
   `python -m sorting.lab_sample` 로 대상을 클릭하면 붙여넣을 한 줄이 나온다.
 
+## 문서
+
+| 문서 | 내용 |
+|---|---|
+| [SCENARIO](../docs/SCENARIO.md) | 데모 순서 10분 + 실패 대비책 |
+| [ROLES](../docs/ROLES.md) | 3명 분업 (동시 착수 가능한 구조) |
+| [DEV](../docs/DEV.md) | 내부 개발문서 — **새 요구사항이 오면 어디를 고치나** |
+| [PRESENTATION](../docs/PRESENTATION.md) | 발표 대본 |
+
 ## 설치
 
 ```bash

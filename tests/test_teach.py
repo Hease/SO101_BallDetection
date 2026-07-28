@@ -12,17 +12,8 @@ import math
 
 import pytest
 
-from sorting import calib
 from sorting.teach import Pose, PoseLibrary, ReadFailed, TeachSession
 from sorting.workspace import Workspace
-
-
-@pytest.fixture(autouse=True)
-def isolated_store(tmp_path, monkeypatch):
-    """테스트마다 빈 저장소를 쓴다 — 진짜 캘리브레이션을 건드리지 않게."""
-    store = calib.CalibStore(path=str(tmp_path / "calibration.json"))
-    monkeypatch.setattr(calib, "STORE", store)
-    return store
 
 
 def circle_trace(r=0.25, z=0.05, n=24):
@@ -121,36 +112,36 @@ def test_pose_names_sorted():
     assert lib.names() == ["aaa", "bin_red", "zzz"]
 
 
-def test_manual_pose_is_marked_manual(isolated_store):
+def test_manual_pose_is_marked_manual(isolate_calibration):
     """서보를 못 읽어 손으로 넣은 좌표는 '수동'으로 남아야 한다."""
     lib = PoseLibrary()
     lib.add(Pose("bin_blue", (0.2, 0.1, 0.05)), manual=True,
             note="서보2 무응답 — 자로 측정")
 
-    item = isolated_store.get("poses", None)
+    item = isolate_calibration.get("poses", None)
     assert item.source == "manual"
     assert "자로 측정" in item.note
 
 
 # ── 저장소 연동 ────────────────────────────────────────────────────────────
-def test_measured_workspace_is_marked_measured(isolated_store):
+def test_measured_workspace_is_marked_measured(isolate_calibration):
     Workspace.from_trace(circle_trace()).save(note="손으로 훑음 (24점)")
-    item = isolated_store.get("workspace", None)
+    item = isolate_calibration.get("workspace", None)
     assert item.source == "measured"
     assert "훑음" in item.note
 
 
-def test_teaching_removes_item_from_missing_list(isolated_store):
+def test_teaching_removes_item_from_missing_list(isolate_calibration):
     """티칭하면 '아직 안 잰 값' 목록에서 빠져야 한다."""
-    assert "workspace" in {k for k, _d, _h in isolated_store.missing()}
+    assert "workspace" in {k for k, _d, _h in isolate_calibration.missing()}
     Workspace.from_trace(circle_trace()).save()
-    assert "workspace" not in {k for k, _d, _h in isolated_store.missing()}
+    assert "workspace" not in {k for k, _d, _h in isolate_calibration.missing()}
 
 
-def test_heights_can_be_set_manually_when_read_fails(isolated_store):
+def test_heights_can_be_set_manually_when_read_fails(isolate_calibration):
     """자동 읽기가 실패해도 수동 경로로 값이 들어가면 진행할 수 있다."""
-    isolated_store.set_manual("robot.z_grasp", 0.006, "서보4 무응답, 자로 측정")
+    isolate_calibration.set_manual("robot.z_grasp", 0.006, "서보4 무응답, 자로 측정")
 
-    item = isolated_store.get("robot.z_grasp", 0.005)
+    item = isolate_calibration.get("robot.z_grasp", 0.005)
     assert item.value == 0.006 and item.source == "manual"
-    assert "robot.z_grasp" not in {k for k, _d, _h in isolated_store.missing()}
+    assert "robot.z_grasp" not in {k for k, _d, _h in isolate_calibration.missing()}
