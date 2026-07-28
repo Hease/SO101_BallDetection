@@ -11,7 +11,7 @@ from driver_sdk import STS3215Driver
 
 
 class RealBackend:
-    def __init__(self, port="/dev/ttyACM0"):
+    def __init__(self, port="/dev/ttyACM1"):
         lim = FKSo101().limits_deg()               # 관절한계(도) — 명령 전 클램프
         self._lo = [lim[n][0] for n in ARM_JOINT_NAMES]
         self._hi = [lim[n][1] for n in ARM_JOINT_NAMES]

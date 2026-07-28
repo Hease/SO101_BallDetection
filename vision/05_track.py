@@ -18,11 +18,11 @@ from soarm_lab import arm
 RED1_LO, RED1_HI = (0, 100, 80), (10, 255, 255)
 RED2_LO, RED2_HI = (160, 100, 80), (179, 255, 255)
 MIN_AREA = 150
-Z_HOVER = 0.12          # 손끝 유지 높이(m) — 안 집고 위에서만 따라감
-MARGIN = 0.01           # 이 거리(m) 이하로 움직이면 명령 생략(데드밴드)
-SPEED = 600             # 실물 서보 속도(작을수록 느림)
-ACC = 20                # 실물 가감속
-REAL = True             # 시뮬 확인은 False, 실물은 True
+Z_HOVER = 0.12  # 손끝 유지 높이(m) — 안 집고 위에서만 따라감
+MARGIN = 0.01  # 이 거리(m) 이하로 움직이면 명령 생략(데드밴드)
+SPEED = 600  # 실물 서보 속도(작을수록 느림)
+ACC = 20  # 실물 가감속
+REAL = True  # 시뮬 확인은 False, 실물은 True
 
 
 def detect_red(bgr):
@@ -54,9 +54,11 @@ def main():
     if REAL:
         drv = arm._backend(True).drv
         if not drv.ping(1):
-            raise SystemExit("서보 응답 없음(id1) — 로봇 전원/케이블/포트 확인 후 다시 실행.")
+            raise SystemExit(
+                "서보 응답 없음(id1) — 로봇 전원/케이블/포트 확인 후 다시 실행."
+            )
         for sid in (1, 2, 3, 4, 5):
-            drv.set_torque(sid, True)           # 티칭 등으로 꺼진 토크를 다시 켠다
+            drv.set_torque(sid, True)  # 티칭 등으로 꺼진 토크를 다시 켠다
             drv.set_acceleration(sid, ACC)
             drv.set_speed(sid, SPEED)
 
@@ -71,11 +73,13 @@ def main():
             det, area = detect_red(rgb)
             if det:
                 u, v, r = det
-                cv2.circle(rgb, (u, v), r, (0, 0, 255), 2)      # 검출된 실제 반지름
+                cv2.circle(rgb, (u, v), r, (0, 0, 255), 2)  # 검출된 실제 반지름
                 draw_hud(rgb, f"ball area={area:.0f}", (0, 255, 0))
                 x, y = cv2.perspectiveTransform(np.float32([[[u, v]]]), H)[0, 0]
-                moved = (last_xy is None or
-                         ((x - last_xy[0]) ** 2 + (y - last_xy[1]) ** 2) ** 0.5 > MARGIN)
+                moved = (
+                    last_xy is None
+                    or ((x - last_xy[0]) ** 2 + (y - last_xy[1]) ** 2) ** 0.5 > MARGIN
+                )
                 if moved:
                     try:
                         arm.go([float(x), float(y), Z_HOVER], real=REAL, down=False)
@@ -84,9 +88,15 @@ def main():
                         print("스킵(도달 밖):", e)
             else:
                 # 왜 못 찾았는지 화면에 — 조용한 실패를 없앤다
-                draw_hud(rgb, f"NO BALL: max blob {area:.0f}px < MIN_AREA {MIN_AREA}"
-                              if area else "NO BALL: red pixels 0 (HSV 재측정)",
-                         (0, 200, 255))
+                draw_hud(
+                    rgb,
+                    (
+                        f"NO BALL: max blob {area:.0f}px < MIN_AREA {MIN_AREA}"
+                        if area
+                        else "NO BALL: red pixels 0 (HSV 재측정)"
+                    ),
+                    (0, 200, 255),
+                )
             cv2.imshow("track (q=quit)", rgb)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
