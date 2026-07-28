@@ -35,7 +35,7 @@ class OutOfReach(Exception):
 
 @dataclass
 class GripMap:
-    """그리퍼 percent(0=닫힘, 100=열림) → 서보 raw / 시뮬 각도.
+    """그리퍼 fraction(0=닫힘, 1=열림) → 서보 raw / 시뮬 각도.
 
     실물 그리퍼는 서보 한 바퀴가 집게 ~110° 로 줄어드는 링키지라 관절각을
     그대로 쓸 수 없다. driver_sdk.JOINT_LIMITS[6] 이 그 보정값을 갖고 있다
@@ -58,24 +58,24 @@ class GripMap:
             flip=bool(lim.get("flip", False)),
         )
 
-    def to_raw(self, pct: float) -> int:
-        t = max(0.0, min(100.0, pct)) / 100.0
+    def to_raw(self, frac: float) -> int:
+        t = max(0.0, min(1.0, frac))
         if self.flip:                     # min 쪽이 물리적으로 '열림'인 팔
             t = 1.0 - t
         return int(round(self.raw_min + t * (self.raw_max - self.raw_min)))
 
-    def to_deg(self, pct: float) -> float:
-        t = max(0.0, min(100.0, pct)) / 100.0
+    def to_deg(self, frac: float) -> float:
+        t = max(0.0, min(1.0, frac))
         return self.deg_min + t * (self.deg_max - self.deg_min)
 
-    def raw_to_pct(self, raw: int) -> float:
+    def raw_to_frac(self, raw: int) -> float:
         span = self.raw_max - self.raw_min
         if span == 0:
             return 0.0
         t = (raw - self.raw_min) / span
         if self.flip:
             t = 1.0 - t
-        return max(0.0, min(100.0, t * 100.0))
+        return max(0.0, min(1.0, t))
 
 
 class RobotController:
@@ -95,7 +95,7 @@ class RobotController:
         self.real = real
         self.slow = slow
         self._estopped = False
-        self._grip_pct = self.conf.grip_open
+        self._grip_frac = self.conf.grip_open
         self._last_deg = list(self.conf.home_pose_deg)
 
         # 이동 도중 "지금 당장 멈춰야 하나?"를 물어보는 훅. 파이프라인이 침입
@@ -156,7 +156,7 @@ class RobotController:
         실물에서 매 렌더마다 서보를 읽으면 시리얼이 명령과 경합하므로,
         마지막으로 명령했거나 읽어둔 값을 돌려준다.
         """
-        return list(self._last_deg) + [self.grip_map.to_deg(self._grip_pct)]
+        return list(self._last_deg) + [self.grip_map.to_deg(self._grip_frac)]
 
     def read_arm_deg(self) -> list[float] | None:
         """실물 서보에서 실제 각도를 읽는다(느리다 — 도착 판정에만 쓴다)."""
@@ -175,15 +175,15 @@ class RobotController:
         return out
 
     # ── 그리퍼 (real.py 에 없는 부분을 여기서 구현) ────────────────────────
-    def set_grip(self, pct: float, settle: float = 0.4) -> None:
-        """그리퍼를 pct(0=닫힘, 100=열림)로. 너무 빨리 닫으면 공을 튕겨낸다."""
-        pct = max(0.0, min(100.0, pct))
-        self._grip_pct = pct
+    def set_grip(self, frac: float, settle: float = 0.4) -> None:
+        """그리퍼를 frac(0=닫힘, 1=열림)으로. 너무 빨리 닫으면 공을 튕겨낸다."""
+        frac = max(0.0, min(1.0, frac))
+        self._grip_frac = frac
         if self.real:
-            self.drv.set_position(GRIP_ID, self.grip_map.to_raw(pct))
+            self.drv.set_position(GRIP_ID, self.grip_map.to_raw(frac))
         else:
             with self._sim_data():
-                self.backend.data.ctrl[5] = math.radians(self.grip_map.to_deg(pct))
+                self.backend.data.ctrl[5] = math.radians(self.grip_map.to_deg(frac))
         if settle:
             self._sleep(settle)
 
@@ -198,17 +198,17 @@ class RobotController:
                 return
             time.sleep(0.02)
 
-    def grip_pct_actual(self) -> float | None:
-        """실제 그리퍼 개도(%). 파지 성공 판정에 쓴다."""
+    def grip_frac_actual(self) -> float | None:
+        """실제 그리퍼 개도(0~1). 파지 성공 판정에 쓴다."""
         if not self.real:
             with self._sim_data():
                 deg = float(np.degrees(self.backend.data.qpos[5]))
             span = self.grip_map.deg_max - self.grip_map.deg_min
             if span == 0:
                 return None
-            return max(0.0, min(100.0, (deg - self.grip_map.deg_min) / span * 100.0))
+            return max(0.0, min(1.0, (deg - self.grip_map.deg_min) / span))
         raw = self.drv.get_position(GRIP_ID)
-        return None if raw is None else self.grip_map.raw_to_pct(raw)
+        return None if raw is None else self.grip_map.raw_to_frac(raw)
 
     def holding_object(self) -> bool:
         """공을 실제로 물고 있는가.
@@ -216,10 +216,10 @@ class RobotController:
         닫으라고 명령했는데 집게가 '완전히' 닫혀 버렸다면 사이에 아무것도 없는
         것이다. 공이 물려 있으면 그 두께만큼 덜 닫힌다.
         """
-        actual = self.grip_pct_actual()
+        actual = self.grip_frac_actual()
         if actual is None:
             return True            # 못 읽으면 성공으로 가정 — 비전 재확인에 맡긴다
-        return actual > self.conf.grip_empty_pct
+        return actual > self.conf.grip_empty_frac
 
     # ── 이동 ──────────────────────────────────────────────────────────────
     def check_workspace(self, xyz):
@@ -302,7 +302,7 @@ class RobotController:
             return
         self.set_grip(self.conf.grip_open, settle=0.2)
         deg = list(self.conf.home_pose_deg)
-        self.backend.move(deg, grip=self.grip_map.to_deg(self._grip_pct))
+        self.backend.move(deg, grip=self.grip_map.to_deg(self._grip_frac))
         self._last_deg = deg
         self.wait_settled(deg)
 
@@ -340,11 +340,11 @@ class RobotController:
         if self._estopped:
             return
         if joint_index == 5:
-            self.set_grip(self._grip_pct + delta_deg, settle=0.0)
+            self.set_grip(self._grip_frac + delta_deg, settle=0.0)
             return
         deg = list(self._last_deg)
         deg[joint_index] += delta_deg
-        self.backend.move(deg, grip=self.grip_map.to_deg(self._grip_pct))
+        self.backend.move(deg, grip=self.grip_map.to_deg(self._grip_frac))
         self._last_deg = deg
 
     # ── 파지/놓기 시퀀스 ──────────────────────────────────────────────────
@@ -388,7 +388,7 @@ class RobotController:
         for delta in (25, -25, 25, -25, 0):
             deg = list(base)
             deg[0] += delta
-            self.backend.move(deg, grip=self.grip_map.to_deg(self._grip_pct))
+            self.backend.move(deg, grip=self.grip_map.to_deg(self._grip_frac))
             self._last_deg = deg
             self.wait_settled(deg, timeout=1.2)
 

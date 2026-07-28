@@ -141,9 +141,12 @@ class RobotConfig:
     z_hover: float = 0.12           # 이동 중 손끝 높이(m)
     z_grasp: float = 0.005          # 파지 시 하강 높이(m)
     z_release: float = 0.08         # bin 위에서 놓는 높이(m)
-    grip_open: float = 100.0        # 그리퍼 열림(%)
-    grip_closed: float = 15.0       # 그리퍼 닫힘(%) — 공 크기에 맞춤
-    grip_empty_pct: float = 8.0     # 이보다 더 닫혔으면 아무것도 안 잡힌 것
+    # 그리퍼는 fraction 으로 다룬다: 0=닫힘 .. 1=열림.
+    # (팀 합의 — soarm_lab/real.py 의 grip(frac) 과 단위를 맞춘다. 각도(도)로 쓰면
+    #  arm.go 의 grip= 의미와 섞이고, %로 쓰면 벤더 API 와 어긋난다.)
+    grip_open: float = 1.0          # 활짝 열림
+    grip_closed: float = 0.15       # 공을 물었을 때 — 공 크기에 맞춰 실측
+    grip_empty_frac: float = 0.08   # 이보다 더 닫혔으면 아무것도 안 잡힌 것
     speed: int = 600                # 서보 속도(작을수록 느림, 0=최대)
     accel: int = 20                 # 가감속(작을수록 부드럽게)
     slow_speed: int = 250           # --speed slow 일 때

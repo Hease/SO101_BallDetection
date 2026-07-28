@@ -147,13 +147,13 @@ class TeachSession:
         self._ensure_hardware()
         return self._reader()
 
-    def grip_percent(self) -> float | None:
-        """현재 그리퍼 개도(%). 못 읽으면 None."""
+    def grip_fraction(self) -> float | None:
+        """현재 그리퍼 개도(0~1). 못 읽으면 None."""
         if self._drv is None:
             return None
         from .robot import GRIP_ID, GripMap
         raw = self._drv.get_position(GRIP_ID)
-        return None if raw is None else GripMap.from_driver().raw_to_pct(raw)
+        return None if raw is None else GripMap.from_driver().raw_to_frac(raw)
 
     # ── 경계 훑기 ─────────────────────────────────────────────────────────
     def trace_boundary(self, seconds: float | None = None, stop_check=None,
@@ -319,34 +319,34 @@ def cmd_grip(session: TeachSession) -> int:
     steps = [
         ("robot.grip_open", "**활짝 열린** 상태"),
         ("robot.grip_closed", "**공을 물고 있는** 상태 (공을 끼워 주세요)"),
-        ("robot.grip_empty_pct", "**빈손으로 완전히 닫은** 상태"),
+        ("robot.grip_empty_frac", "**빈손으로 완전히 닫은** 상태"),
     ]
     for key, what in steps:
         print(f"\n  [{key}] {what}")
         if _ask("  그 상태로 만들고 Enter (건너뛰려면 s) > ") == "s":
             continue
-        pct = None
+        frac = None
         try:
-            pct = session.grip_percent()
+            frac = session.grip_fraction()
         except Exception as exc:
             print(f"    읽기 오류: {exc}")
 
-        if pct is None:
+        if frac is None:
             print("    그리퍼 위치를 읽지 못했습니다(서보6 응답 없음).")
-            got = _manual_float(f"{key} (%)", "그리퍼 위치 읽기 실패")
+            got = _manual_float(f"{key} (0~1)", "그리퍼 위치 읽기 실패")
             if got:
                 calib.STORE.set_manual(key, got[0], got[1])
-                print(f"    ✏️ 수동 등록: {got[0]}%")
+                print(f"    ✏️ 수동 등록: {got[0]}")
             continue
 
-        value = round(pct, 1)
-        if key == "robot.grip_empty_pct":
+        value = round(frac, 3)
+        if key == "robot.grip_empty_frac":
             # 빈손일 때보다 조금 위를 기준으로 잡는다. 공을 물면 그 두께만큼
             # 덜 닫히므로, 빈손 값 그대로 쓰면 경계에서 오판이 난다.
-            value = round(pct + 3.0, 1)
-            print(f"    측정 {pct:.1f}% → 여유 3%p 를 더해 기준 {value}% 로 저장")
+            value = round(frac + 0.03, 3)
+            print(f"    측정 {frac:.3f} → 여유 0.03 을 더해 기준 {value} 로 저장")
         calib.STORE.set_measured(key, value, "실제 그리퍼 상태에서 읽음")
-        print(f"    ✅ {value}%")
+        print(f"    ✅ {value}")
     return 0
 
 

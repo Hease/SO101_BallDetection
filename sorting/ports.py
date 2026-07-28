@@ -55,8 +55,8 @@ class RobotPort(Protocol):
     def place(self, target_xy) -> None:
         """지금 들고 있는 것을 그 자리에 놓는다."""
 
-    def set_grip(self, pct: float, settle: float = 0.0) -> None:
-        """그리퍼를 pct(0=닫힘, 100=열림)로."""
+    def set_grip(self, frac: float, settle: float = 0.0) -> None:
+        """그리퍼를 frac(0=닫힘, 1=열림)으로."""
 
     def holding_object(self) -> bool:
         """지금 무언가를 물고 있는가. 파지 성공 판정에 쓴다."""

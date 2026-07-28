@@ -56,7 +56,7 @@ class PrintRobot:
         self.workspace = None
 
         self._estopped = False
-        self._grip_pct = self.conf.grip_open
+        self._grip_frac = self.conf.grip_open
         self._xyz = (0.0, 0.0, 0.0)
         self._joints = list(self.conf.home_pose_deg)
         self._holding_when_closed = grip_closed_means_holding
@@ -77,7 +77,7 @@ class PrintRobot:
         return self._estopped
 
     def joint_angles_deg(self) -> list[float]:
-        return list(self._joints) + [self._grip_pct]
+        return list(self._joints) + [self._grip_frac]
 
     def read_arm_deg(self) -> list[float]:
         return list(self._joints)
@@ -129,23 +129,23 @@ class PrintRobot:
         self.set_grip(self.conf.grip_open)
         self.move_to((target_xy[0], target_xy[1], self.conf.z_hover))
 
-    def set_grip(self, pct: float, settle: float = 0.0) -> None:
+    def set_grip(self, frac: float, settle: float = 0.0) -> None:
         if self._estopped:
             return
-        self._grip_pct = max(0.0, min(100.0, float(pct)))
-        self._say(f"그리퍼 {self._grip_pct:.0f}%")
+        self._grip_frac = max(0.0, min(1.0, float(frac)))
+        self._say(f"그리퍼 {self._grip_frac * 100:.0f}% 열림")
 
     def holding_object(self) -> bool:
         """닫혀 있으면 물었다고 본다 — 진짜 로봇의 판정 규칙과 같은 모양."""
         if not self._holding_when_closed:
             return False
-        return self._grip_pct > self.conf.grip_empty_pct
+        return self._grip_frac > self.conf.grip_empty_frac
 
     def jog(self, joint_index: int, delta_deg: float) -> None:
         if self._estopped:
             return
         if joint_index == 5:
-            self.set_grip(self._grip_pct + delta_deg)
+            self.set_grip(self._grip_frac + delta_deg / 100.0)
             return
         self._joints[joint_index] += delta_deg
         self._say(f"조깅 J{joint_index + 1} {delta_deg:+.0f}° "

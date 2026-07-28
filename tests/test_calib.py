@@ -41,10 +41,10 @@ def test_manual_overrides_measured(store):
     하드웨어가 이상해서 측정이 엉뚱하게 나오는 상황이 실제로 있다.
     그때 막히지 않고 손으로 고칠 수 있는 것이 이 저장소의 존재 이유다.
     """
-    store.set_measured("robot.grip_empty_pct", 3.0)
-    store.set_manual("robot.grip_empty_pct", 8.0, note="서보6 위치읽기 불량")
+    store.set_measured("robot.grip_empty_frac", 3.0)
+    store.set_manual("robot.grip_empty_frac", 8.0, note="서보6 위치읽기 불량")
 
-    item = store.get("robot.grip_empty_pct", 5.0)
+    item = store.get("robot.grip_empty_frac", 5.0)
     assert item.value == 8.0
     assert item.source == MANUAL
     assert "서보6" in item.note

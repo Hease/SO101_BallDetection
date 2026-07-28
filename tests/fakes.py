@@ -37,7 +37,7 @@ class FakeRobot:
     def __init__(self, holding: bool = True, reach_limit: float | None = None):
         self.should_abort = None
         self.estopped = False
-        self.grip_pct = 100.0
+        self.grip_frac = 1.0     # 0=닫힘 .. 1=열림
         self.pose = [0.0, 30.0, -45.0, 0.0, 0.0]
 
         self._holding = holding
@@ -74,9 +74,9 @@ class FakeRobot:
         self._check_reach(bin_xy)
         self._log("place", tuple(bin_xy))
 
-    def set_grip(self, pct: float, settle: float = 0.0) -> None:
-        self.grip_pct = pct
-        self._log("set_grip", pct)
+    def set_grip(self, frac: float, settle: float = 0.0) -> None:
+        self.grip_frac = frac
+        self._log("set_grip", frac)
 
     def holding_object(self) -> bool:
         return self._holding
@@ -88,7 +88,7 @@ class FakeRobot:
         self._log("jog", joint_index, delta_deg)
 
     def joint_angles_deg(self) -> list[float]:
-        return list(self.pose) + [self.grip_pct]
+        return list(self.pose) + [self.grip_frac]
 
     def read_arm_deg(self):
         return list(self.pose)
