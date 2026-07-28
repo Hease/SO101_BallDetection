@@ -23,14 +23,19 @@
 ## 2. 하드웨어 추상화 — sorting 드라이버 계층 (팀 합의)
 
 납땜도 **sorting/ports.py·drivers.py** 의 하드웨어 계약을 쓴다(단일 추상화). 로봇/카메라를
-**이름으로 갈아끼운다** — `30_servo.py` 상단 상수:
+**명령줄 플래그로 갈아끼운다**(`--help` 참고):
 
-| 상수 | 값 | 의미 |
+| 플래그 | 값 | 의미 |
 |---|---|---|
-| `ROBOT_DRIVER` | `"so101"` | 실제 팔(`REAL=True`) 또는 헤드리스 시뮬(`REAL=False`) |
-|  | `"print"` | 팔 없이 무엇을 할지 출력만(하드웨어 없이 로직 확인) |
-| `CAMERA_DRIVER` | `"hp60c"` | 실제 탑다운 카메라(shm 브리지) |
-|  | `"replay"` / `"print"` | 저장 사진 재생 / 합성 화면 |
+| `--robot` | `so101` | 실제 팔(기본) 또는 `--sim` 으로 헤드리스 시뮬 |
+|  | `print` | 팔 없이 무엇을 할지 출력만(하드웨어 없이 로직 확인) |
+| `--camera` | `hp60c` | 실제 탑다운 카메라(shm 브리지, 기본) |
+|  | `replay` / `print` | 저장 사진 재생 / 합성 화면 |
+| `--mode` | `preview` / `servo` | 검출·오차만 확인 / 실제 서보 |
+| `--yes` | | 시작 확인(Enter) 생략 — **하드웨어 없이 돌릴 때만** |
+
+> 상단 상수는 이제 **기본값일 뿐**이다. 시연 중에 파일을 고치지 말 것 — 되돌리는
+> 걸 잊으면 다음 실행이 조용히 print 로 돈다. 시작 배너가 무엇으로 도는지 찍는다.
 
 - 이동은 `RobotController.move_to`(실측 작업영역·IK 잔차·관절 클램프 3중 방어),
   긴급정지는 `robot.estop`(토크 안 끔) + `should_abort`(이동 중에도 정지),
@@ -51,11 +56,12 @@ export SOARM_PORT=/dev/ttyACM0                   # 포트 다르면 지정(기�
 ## 4. 실행 순서
 
 ```bash
-# 하드웨어 없이 먼저: 30_servo.py 에서 ROBOT_DRIVER=CAMERA_DRIVER="print" 로 두고 확인
-# 1) 검출/오차 확인 (MODE="preview", 로봇 안 움직임)
+# 0) 하드웨어 없이 먼저 — 로직만 확인
+python solder/30_servo.py --mode servo --robot print --camera print --yes
+# 1) 검출/오차 확인 (로봇 안 움직임). q 로 종료
 python solder/30_servo.py
-# 2) 실제 서보 (MODE="servo") — 정렬(폐루프) → 접촉까지 하강 → 후퇴. 정지: Enter/Ctrl-C
-python solder/30_servo.py
+# 2) 실제 서보 — 정렬(폐루프) → 접촉까지 하강 → 후퇴. 정지: Enter/Ctrl-C
+python solder/30_servo.py --mode servo
 ```
 
 ### 튜닝

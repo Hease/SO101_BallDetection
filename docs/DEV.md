@@ -251,18 +251,24 @@ pytest                  # 100초 · 139개 — 커밋 전 한 번
 이 일원화 과정에서 제거됨).
 
 ```bash
-# 분류 파이프라인 — CLI 플래그
+# 분류 파이프라인
 python sorting_main.py --robot print --camera print
 python -m sorting.drivers                       # 등록된 드라이버 계약 점검
 
-# 납땜 서보 — 30_servo.py 상단 상수를 고친다
-#   ROBOT_DRIVER  = "print"
-#   CAMERA_DRIVER = "print"
-python solder/30_servo.py
+# 납땜 서보
+python solder/30_servo.py --help
+python solder/30_servo.py --robot print --camera print        # preview
+python solder/30_servo.py --mode servo --robot print --camera print --yes
+python solder/30_servo.py --mode servo --sim                  # 헤드리스 시뮬
 ```
 
-> ⬜ **미완**: 납땜 쪽은 드라이버 선택이 모듈 상수라 **소스를 편집해야** 바뀐다.
-> 시연 중 파일 편집은 사고가 나기 쉬우므로 환경변수나 CLI 플래그로 빼는 게 낫다.
+드라이버 선택을 **플래그로만** 받는 이유: 소스 상수를 고쳐서 바꾸면 되돌리는
+걸 잊기 쉽고, 그 상태로 다음 실행이 조용히 print 드라이버로 돈다. 시연 중에
+"로봇이 왜 안 움직이지"가 되는 전형적인 경로다. 플래그는 그 실행에만 적용되고,
+시작 배너가 항상 무엇으로 도는지 찍는다.
+
+`--yes` 는 시작 확인(Enter)을 건너뛴다. **하드웨어 없이 돌릴 때만** 쓴다 —
+실물에서 사람 확인을 빼는 용도가 아니다.
 
 | 종류 | 이름 | 무엇 |
 |---|---|---|

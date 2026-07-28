@@ -43,11 +43,15 @@ class Stopped(Exception):
 # ── 긴급정지 ─────────────────────────────────────────────────────────────────
 class EStop:
     """긴급정지 버튼(§8). 백그라운드로 표준입력을 지켜보다 Enter 가 오면 정지.
-    Ctrl-C(SIGINT) 로도 trip() 을 부를 수 있다. 정지 시 on_stop(보통 토크오프) 호출.
+    Ctrl-C(SIGINT) 로도 trip() 을 부를 수 있다. 정지 시 on_stop 을 한 번 호출.
 
-        est = EStop(on_stop=lambda: drv.set_all_torque(False)).start()
+        est = EStop(on_stop=lambda: robot.estop()).start()
         while ...:
             est.check()          # 정지됐으면 Stopped 예외
+
+    on_stop 은 `robot.estop()` 이다 — **토크를 끄지 않는다.** 끄면 중력으로
+    주저앉고, 인두기를 물고 있으면 그게 작업면으로 떨어진다. 현재 자세를 다시
+    목표로 걸어 그 자리에 굳히는 쪽이 안전하다.
     """
 
     def __init__(self, on_stop=None):
@@ -68,7 +72,13 @@ class EStop:
             except (ValueError, OSError):
                 return                       # stdin 닫힘
             if r:
-                sys.stdin.readline()
+                # EOF 는 사람이 Enter 를 누른 게 아니다. 파이프·리다이렉션으로
+                # 돌리면 select 가 즉시 readable 을 주고 readline 이 "" 를
+                # 돌려주는데, 이걸 입력으로 세면 시작하자마자 정지해 버린다.
+                if sys.stdin.readline() == "":
+                    print("[E-STOP] stdin EOF — 키보드 정지는 쓸 수 없습니다"
+                          " (Ctrl-C 는 유효)")
+                    return
                 self.trip("Enter 입력")
 
     def trip(self, why="?"):
@@ -76,7 +86,7 @@ class EStop:
         self._stop.set()
         if not self._fired:
             self._fired = True
-            print(f"\n[E-STOP] {why} → 정지 · 토크 해제")
+            print(f"\n[E-STOP] {why} → 정지 (현재 자세 유지 · 토크 안 끔)")
             if self.on_stop:
                 try:
                     self.on_stop()

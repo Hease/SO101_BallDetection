@@ -7,17 +7,23 @@
 접촉. 팁 오프셋을 계산할 필요가 없다(브리프 §4.2) — 오차를 눈(카메라)이 없앤다.
 
 하드웨어는 sorting 의 드라이버 계층(ports/drivers)에서 받는다 — 단일 하드웨어
-추상화(팀 합의). 로봇/카메라를 이름으로 갈아끼운다:
-    ROBOT_DRIVER  "so101" 실제 팔/시뮬 · "print" 동작 없이 출력만
-    CAMERA_DRIVER "hp60c" 실제 · "replay" 사진 재생 · "print" 합성 화면
-하드웨어 없이 로직만 볼 땐 둘 다 "print" 로 둔다.
+추상화(팀 합의). 로봇/카메라를 **명령줄에서** 갈아끼운다:
+
+    python solder/30_servo.py                          # preview, 실물
+    python solder/30_servo.py --robot print --camera print   # 하드웨어 없이
+    python solder/30_servo.py --mode servo             # 실제 서보
+    python solder/30_servo.py --mode servo --sim       # 헤드리스 시뮬
+    python solder/30_servo.py --help
+
+    로봇   "so101" 실제 팔/시뮬 · "print" 동작 없이 출력만
+    카메라 "hp60c" 실제 · "replay" 사진 재생 · "print" 합성 화면
 
 이동·정지·안전은 sorting 층을 그대로 쓴다: 좌표 이동은 RobotController.move_to
 (실측 작업영역·IK 잔차·관절 클램프 3중 방어), 긴급정지는 robot.estop(토크는 안
 끔) + should_abort(이동 한복판에서도 정지), 접촉은 robot.drv 의 부하 급증.
 
-⚠️ 팔이 자동으로 움직인다. 먼저 MODE="preview"(모션 없음)로 두 마커가 잘 잡히고
-   오차 벡터가 맞는지 본 뒤 MODE="servo". 정지는 Enter/Ctrl-C.
+⚠️ 팔이 자동으로 움직인다. 먼저 preview(모션 없음)로 두 마커가 잘 잡히고
+   오차 벡터가 맞는지 본 뒤 --mode servo. 정지는 Enter/Ctrl-C.
 키(preview): q=종료
 """
 import os
@@ -33,10 +39,13 @@ for p in (_ROOT, _HERE):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from sorting.drivers import make_robot, make_camera
+from sorting.drivers import make_robot, make_camera, ROBOTS, CAMERAS
 from sorting.robot import OutOfReach
 import safety
 
+# ── 기본값 ───────────────────────────────────────────────────────────────────
+# 시연 중에는 이 파일을 고치지 말고 **명령줄 플래그**로 바꾼다(아래 parse_args).
+# 소스를 편집하면 되돌리는 걸 잊기 쉽고, 그 상태로 다음 시연이 돌아간다.
 MODE = "preview"           # "preview"(검출/오차 확인) → "servo"(실제 서보+접촉)
 ROBOT_DRIVER = "so101"     # "so101"(실제/시뮬) 또는 "print"(출력만)
 CAMERA_DRIVER = "hp60c"    # "hp60c" · "replay" · "print"
@@ -128,10 +137,10 @@ def annotate(bgr, tp, gp, err):
 
 
 # ── 모드 ─────────────────────────────────────────────────────────────────────
-def preview(H):
+def preview(H, cam_driver=CAMERA_DRIVER):
     print("preview: 두 마커 검출/오차 확인 (로봇 안 움직임). q 종료.")
     win = "servo preview (q=quit)"
-    with make_camera(CAMERA_DRIVER) as cam:
+    with make_camera(cam_driver) as cam:
         last = 0
         while True:
             rgb, _d, last = cam.read_blocking(last)
@@ -146,7 +155,7 @@ def preview(H):
     cv2.destroyAllWindows()
 
 
-def servo(robot, est, H):
+def servo(robot, est, H, cam_driver=CAMERA_DRIVER):
     """팁을 타겟 위로 정렬(폐루프) → 부하로 접촉까지 하강 → 후퇴."""
     robot.should_abort = lambda: est.stopped        # 이동 한복판에서도 즉시 선다
     guard = safety.LoadGuard(robot.drv) if getattr(robot, "drv", None) else None
@@ -156,7 +165,7 @@ def servo(robot, est, H):
     last = 0
     miss = 0
     aligned = False
-    with make_camera(CAMERA_DRIVER) as cam:
+    with make_camera(cam_driver) as cam:
         for it in range(MAX_ITERS):
             est.check()
             rgb, _d, last = cam.read_blocking(last)
@@ -209,32 +218,75 @@ def servo(robot, est, H):
     print("완료.")
 
 
-def main():
+def parse_args(argv=None):
+    """드라이버·모드를 명령줄에서 고른다.
+
+    시연 중에 소스를 편집하지 않기 위해서다. 편집 방식은 되돌리는 걸 잊기 쉽고,
+    그러면 다음 실행이 조용히 print 드라이버로 돌아 "로봇이 안 움직인다"가 된다.
+    플래그는 그 실행에만 적용되므로 그 사고가 나지 않는다.
+    """
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="탑다운 비주얼 서보 — 인두기 팁을 타겟에 갖다 댄다",
+        epilog="예)  %(prog)s --robot print --camera print      # 하드웨어 없이\n"
+               "     %(prog)s --mode servo                      # 실제 서보\n"
+               "     %(prog)s --mode servo --sim                # 헤드리스 시뮬",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--mode", choices=("preview", "servo"), default=MODE,
+                    help="preview=검출/오차만 확인(로봇 정지) · servo=실제 서보")
+    ap.add_argument("--robot", choices=sorted(ROBOTS), default=ROBOT_DRIVER,
+                    help="로봇 드라이버 (print=동작 없이 출력만)")
+    ap.add_argument("--camera", choices=sorted(CAMERAS), default=CAMERA_DRIVER,
+                    help="카메라 드라이버 (print=합성 화면)")
+    ap.add_argument("--sim", action="store_true", default=not REAL,
+                    help="so101 을 실물 대신 헤드리스 시뮬로")
+    ap.add_argument("--yes", "-y", action="store_true",
+                    help="시작 전 Enter 확인 생략 (하드웨어 없이 돌릴 때만)")
+    return ap.parse_args(argv)
+
+
+def banner(args, H):
+    """무엇으로 도는지 먼저 찍는다 — 시연 중 '왜 안 움직이지'를 없앤다."""
+    real = "시뮬(headless)" if args.sim else "실물"
+    print("─" * 58)
+    print(f"  모드     {args.mode}")
+    print(f"  로봇     {args.robot}" + (f" ({real})" if args.robot == "so101" else ""))
+    print(f"  카메라   {args.camera}")
+    print(f"  H        {'있음' if H is not None else '없음'}  ({H_PATH})")
+    if args.robot == "print" or args.camera == "print":
+        print("  ⚠️  print 드라이버 사용 중 — 실제 하드웨어는 움직이지 않습니다")
+    print("─" * 58)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     H = np.load(H_PATH) if os.path.exists(H_PATH) else None
-    if MODE == "preview":
+    banner(args, H)
+
+    if args.mode == "preview":
         if H is None:
             print(f"[경고] {H_PATH} 없음 — 로봇 xy·오차 표시 불가(픽셀만).")
-        preview(H)
+        preview(H, args.camera)
         return
-    if MODE == "servo":
-        if H is None:
-            raise SystemExit(f"{H_PATH} 없음 — vision/03_calib_auto.py 로 먼저 캘리브.")
-        robot = make_robot(ROBOT_DRIVER, real=REAL)
-        est = safety.EStop(on_stop=lambda: robot.estop())
-        print("[안전] 작업면에서 손을 치우세요. 정지는 Enter/Ctrl-C.")
+
+    if H is None:
+        raise SystemExit(f"{H_PATH} 없음 — vision/03_calib_auto.py 로 먼저 캘리브.")
+    robot = make_robot(args.robot, real=not args.sim)
+    est = safety.EStop(on_stop=lambda: robot.estop())
+    print("[안전] 작업면에서 손을 치우세요. 정지는 Enter/Ctrl-C.")
+    if not args.yes:
         input("서보 시작하려면 Enter > ")
-        est.start()                                  # 확인 뒤 watcher 가동
-        try:
-            servo(robot, est, H)
-        except safety.Stopped as e:
-            print(f"\n중단: {e}")
-            robot.estop()
-        except KeyboardInterrupt:
-            est.trip("Ctrl-C")
-        finally:
-            robot.close()
-        return
-    raise SystemExit(f"알 수 없는 MODE: {MODE!r} (preview 또는 servo)")
+    est.start()                                      # 확인 뒤 watcher 가동
+    try:
+        servo(robot, est, H, args.camera)
+    except safety.Stopped as e:
+        print(f"\n중단: {e}")
+        robot.estop()
+    except KeyboardInterrupt:
+        est.trip("Ctrl-C")
+    finally:
+        robot.close()
 
 
 if __name__ == "__main__":
