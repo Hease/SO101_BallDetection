@@ -35,11 +35,12 @@ class OutOfReach(Exception):
 
 @dataclass
 class GripMap:
-    """그리퍼 fraction(0=닫힘, 1=열림) → 서보 raw / 시뮬 각도.
+    """그리퍼 fraction(0=닫힘, 1=열림) ↔ 시뮬 각도 / 서보 raw (표시·리드백용).
 
-    실물 그리퍼는 서보 한 바퀴가 집게 ~110° 로 줄어드는 링키지라 관절각을
-    그대로 쓸 수 없다. driver_sdk.JOINT_LIMITS[6] 이 그 보정값을 갖고 있다
-    (min/max = 이 팔에서 실측한 raw 양끝, flip = raw 가 거꾸로 세는 팔).
+    실물 '작동'은 real.py.grip(frac) 이 맡는다(정본). 여기 매핑은 real.py 에 없는
+    나머지 — 시뮬 각도(ctrl[5]), 3D 트윈 표시각, 서보 raw→frac 리드백 — 에만 쓴다.
+    실물 그리퍼는 서보 한 바퀴가 집게 ~110° 로 줄어드는 링키지라, driver_sdk.
+    JOINT_LIMITS[6] 이 그 보정값을 갖고 있다(min/max=실측 raw 양끝, flip=역방향 팔).
     """
     raw_min: int
     raw_max: int
@@ -57,12 +58,6 @@ class GripMap:
             deg_max=math.degrees(float(lim.get("rad_max", 1.745))),
             flip=bool(lim.get("flip", False)),
         )
-
-    def to_raw(self, frac: float) -> int:
-        t = max(0.0, min(1.0, frac))
-        if self.flip:                     # min 쪽이 물리적으로 '열림'인 팔
-            t = 1.0 - t
-        return int(round(self.raw_min + t * (self.raw_max - self.raw_min)))
 
     def to_deg(self, frac: float) -> float:
         t = max(0.0, min(1.0, frac))
@@ -174,13 +169,19 @@ class RobotController:
         self._last_deg = out
         return out
 
-    # ── 그리퍼 (real.py 에 없는 부분을 여기서 구현) ────────────────────────
+    # ── 그리퍼 ─────────────────────────────────────────────────────────────
     def set_grip(self, frac: float, settle: float = 0.4) -> None:
-        """그리퍼를 frac(0=닫힘, 1=열림)으로. 너무 빨리 닫으면 공을 튕겨낸다."""
+        """그리퍼를 frac(0=닫힘, 1=열림)으로. 너무 빨리 닫으면 공을 튕겨낸다.
+
+        실물 작동은 real.py 의 grip(frac) 이 정본이다(팀 합의). 여기서 raw 매핑을
+        다시 하지 않고 backend.grip 에 넘긴다 — 값은 양쪽 다 frac(0~1)이라 변환 없음.
+        시뮬 백엔드(LiveSim)에는 grip 이 없으므로 ctrl[5] 경로는 그대로 둔다.
+        표시·리드백용 frac↔deg/raw 변환은 GripMap 에 남는다(real.py 엔 그게 없다).
+        """
         frac = max(0.0, min(1.0, frac))
         self._grip_frac = frac
         if self.real:
-            self.drv.set_position(GRIP_ID, self.grip_map.to_raw(frac))
+            self.backend.grip(frac)                       # 정본: real.py.RealBackend.grip
         else:
             with self._sim_data():
                 self.backend.data.ctrl[5] = math.radians(self.grip_map.to_deg(frac))
