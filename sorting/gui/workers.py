@@ -114,7 +114,8 @@ class PipelineWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, real: bool, slow: bool, obs_source, mapper,
-                 stats=None, watchdog=None, parent=None):
+                 stats=None, watchdog=None, driver: str | None = None,
+                 parent=None):
         super().__init__(parent)
         self.real = real
         self.slow = slow
@@ -122,6 +123,7 @@ class PipelineWorker(QThread):
         self.mapper = mapper
         self.stats = stats
         self.watchdog = watchdog
+        self.driver = driver or "so101"   # 하드웨어 교체 지점
 
         self.robot = None
         self.pipeline: SortingPipeline | None = None
@@ -168,10 +170,12 @@ class PipelineWorker(QThread):
 
     # ── 스레드 본체 ───────────────────────────────────────────────────────
     def run(self) -> None:
-        from ..robot import RobotController
+        from ..drivers import make_robot
 
         try:
-            self.robot = RobotController(real=self.real, slow=self.slow)
+            # 이름으로 드라이버를 고른다. 위쪽 코드(상태머신·안전장치)는
+            # 무엇이 들어왔는지 모른 채 그대로 돈다.
+            self.robot = make_robot(self.driver, real=self.real, slow=self.slow)
         except Exception as exc:
             self.failed.emit(str(exc))
             return

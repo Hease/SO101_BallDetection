@@ -145,12 +145,56 @@ pytest                  # 90초 — 커밋 전 한 번
 | **속도·정밀도 요구** | `config.RobotConfig` 의 speed/accel/settle_tol | 실물 확인 |
 | **새 좌표를 손으로 지정** | `teach add <이름>` → `PoseLibrary` 에서 읽어 씀 | `teach list` |
 | **UI 표시 항목 추가** | `gui/panel.py` 의 `_build_status` | GUI 실행 |
+| **하드웨어 교체** | `drivers.py` 에 어댑터 + 등록 한 줄 | `python -m sorting.drivers` |
 
 **작업 순서 권장**: ① `pytest -m "not slow"` 로 현재 초록 확인 → ② 테스트 먼저
 한 줄 추가 → ③ 구현 → ④ 빠른 레인 → ⑤ 전체 레인 → ⑥ 커밋.
 
 **변경 영향범위 판정**은 C 트랙(문서·테스트 담당)이 맡는다. 위 표에서 해당
 행을 찾고, 그 행의 확인 명령이 초록이면 나머지는 건드리지 않은 것이다.
+
+## 하드웨어가 바뀌면
+
+카메라나 로봇이 바뀌어도 `vision` · `pipeline` · `workspace` · `watchdog` 은
+**한 줄도 고치지 않는다.** 위쪽 코드가 하드웨어에게 요구하는 것이
+`sorting/ports.py` 에 계약으로 적혀 있고, 실제 장비는 `sorting/drivers.py` 의
+어댑터로만 붙는다.
+
+```bash
+python sorting_main.py --robot print            # 로봇 없이 (명령을 출력만)
+python sorting_main.py --camera print           # 카메라 없이 (장면을 합성)
+python sorting_main.py --robot print --camera print   # 둘 다 없이
+python -m sorting.drivers                       # 등록된 드라이버 계약 점검
+```
+
+| 종류 | 이름 | 무엇 |
+|---|---|---|
+| 로봇 | `so101` | 실제 팔(시리얼) 또는 헤드리스 MuJoCo |
+| 로봇 | `print` | 안 움직이고 무엇을 할지 출력만 |
+| 카메라 | `hp60c` | 실제 뎁스카메라 |
+| 카메라 | `replay` | 저장된 사진 재생 |
+| 카메라 | `print` | 검출 가능한 장면을 합성 |
+
+### 새 하드웨어를 붙이는 법
+
+1. `drivers.py` 에 어댑터 클래스를 쓴다. **`RobotPort` 를 상속할 필요가 없다** —
+   메서드 이름과 모양만 맞으면 된다(Protocol).
+2. `ROBOTS` 또는 `CAMERAS` 딕셔너리에 한 줄 등록한다.
+3. `python -m sorting.drivers` 로 계약을 점검한다. 빠진 메서드를 이름으로 알려준다.
+4. `pytest tests/test_ports.py` — 등록된 모든 드라이버에 대해 자동으로 돈다.
+
+### print 드라이버가 그냥 장난감이 아닌 이유
+
+`PrintRobot` 은 **거짓말을 하지 않는다.** 자기 자세를 기억하고, 그리퍼 개도로
+파지 성공을 판정하고, E-STOP 을 걸면 실제로 이후 명령을 무시하고, 측정된
+작업영역 밖이면 `OutOfReach` 를 올린다. 그래서 위쪽 코드가 진짜 로봇에서와
+**같은 경로**를 탄다.
+
+이게 실제로 값어치를 했다. print 로봇으로 갈아끼우자 공 2개가 **42,485개로**
+세어졌다 — 놓자마자 재스캔하면 트래커가 아직 그 공을 들고 있어 같은 공을 다시
+집는 결함이었다. 지금까지는 "이동에 몇 초 걸리니 그 사이 트래커가 잊는다"에
+가려져 있었는데, 그건 *로봇이 트래커보다 느리다*는 가정이다. 하드웨어를 바꾸는
+순간 깨진다. `handled_cooldown_s` 로 고쳤고 회귀 테스트로 묶어 두었다.
 
 ## 자주 겪는 문제
 

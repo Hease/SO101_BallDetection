@@ -71,9 +71,11 @@ class SortingPipeline:
         self.state = State.IDLE
         self._stop = False
         self._pause_requested = False
-        # 끝내 못 집은 공의 로봇좌표. 다시 고르지 않으려고 기억해둔다 —
-        # 없으면 집을 수 없는 공 하나에 걸려 루프가 영원히 끝나지 않는다.
-        self._skipped: list[tuple[str, float, float]] = []
+        # 후보에서 뺄 자리들: (색, x, y, 만료시각).
+        #   만료시각 None → 영구. 끝내 못 집은 공. 없으면 그 공 하나에 걸려
+        #                   루프가 영원히 끝나지 않는다.
+        #   만료시각 float → 잠깐. 방금 처리해서 이제 없어야 하는 자리.
+        self._skipped: list[tuple[str, float, float, float | None]] = []
 
         # 이동 중에도 침입을 알아채도록 로봇에 훅을 건다
         self.robot.should_abort = self._should_abort
@@ -195,10 +197,23 @@ class SortingPipeline:
             self.stats.record_pause()
         return True
 
+    def _skip(self, color: str, x: float, y: float,
+              seconds: float | None = None) -> None:
+        """그 자리의 공을 당분간(또는 영원히) 후보에서 뺀다.
+
+        seconds=None 이면 영구 — 끝내 못 집은 공이다.
+        seconds 를 주면 그동안만 — 방금 처리해서 이제 없어야 하는 공이다.
+        """
+        until = None if seconds is None else time.monotonic() + seconds
+        self._skipped.append((color, x, y, until))
+
     def _is_skipped(self, x: float, y: float, color: str) -> bool:
+        now = time.monotonic()
+        self._skipped = [e for e in self._skipped
+                         if e[3] is None or e[3] > now]      # 만료된 것 정리
         r = self.conf.skip_radius_m
         return any(c == color and (x - sx) ** 2 + (y - sy) ** 2 <= r * r
-                   for c, sx, sy in self._skipped)
+                   for c, sx, sy, _until in self._skipped)
 
     def _choose_ball(self, obs: Observation) -> Ball | None:
         """다음에 집을 공. 로봇 베이스에 가까운 것부터 — 팔이 덜 움직인다.
@@ -236,7 +251,7 @@ class SortingPipeline:
                 self.robot.pick((bx, by), attempt=attempt)
             except OutOfReach as exc:
                 self._emit("skip", reason=f"팔 범위 밖: {exc}")
-                self._skipped.append((ball.color, bx, by))
+                self._skip(ball.color, bx, by)          # 영구 — 닿지 않는 자리
                 if self.stats is not None:
                     self.stats.record_unreachable()
                 return False
@@ -253,7 +268,7 @@ class SortingPipeline:
         else:
             self._emit("skip", reason=f"{self.conf.max_retries}회 시도 후 파지 실패")
             self.robot.set_grip(self.conf.grip_open)
-            self._skipped.append((ball.color, bx, by))
+            self._skip(ball.color, bx, by)              # 영구 — 못 집는 공
             if self.stats is not None:
                 self.stats.record_failure(ball.color)
             return False
@@ -274,6 +289,17 @@ class SortingPipeline:
 
         if self.robot.estopped:
             return False
+
+        # 방금 집어간 자리를 잠깐 후보에서 뺀다.
+        #
+        # 트래커는 공이 사라져도 forget_frames 동안 계속 보고한다. 그래서 놓자마자
+        # 재스캔하면 **같은 공을 다시 집는다.** 지금까지는 "이동에 몇 초 걸리니
+        # 그 사이 트래커가 잊는다"에 기대 가려져 있었는데, 그건 로봇이 트래커보다
+        # 느리다는 가정이다. 하드웨어를 바꾸거나(빠른 로봇) 카메라가 느려지면
+        # 그대로 깨진다 — 실제로 print 드라이버로 갈아끼우자 공 2개가 42,485개로
+        # 세어졌다.
+        # 비전이 "이제 없다"를 확인할 시간을 벌어주는 것이라, 잠깐이면 충분하다.
+        self._skip(ball.color, bx, by, seconds=self.conf.handled_cooldown_s)
 
         elapsed = time.monotonic() - started
         self._emit("sorted", color=ball.color, seconds=elapsed)

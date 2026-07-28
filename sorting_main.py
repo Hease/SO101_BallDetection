@@ -29,6 +29,11 @@ def parse_args(argv):
                     help="저속 동작. 실물 첫 실행에는 반드시 켜세요")
     ap.add_argument("--replay", metavar="경로",
                     help="카메라 대신 저장된 사진 사용 (폴더 또는 glob)")
+    # 하드웨어 교체 — 위쪽 코드는 그대로 두고 드라이버만 갈아끼운다.
+    ap.add_argument("--robot", default=None, metavar="이름",
+                    help="로봇 드라이버: so101(기본) · print(동작 없이 출력만)")
+    ap.add_argument("--camera", default=None, metavar="이름",
+                    help="카메라 드라이버: hp60c(기본) · replay · print(합성)")
     return ap.parse_args(argv)
 
 
@@ -42,10 +47,17 @@ def main(argv=None) -> int:
 
     from PySide6.QtWidgets import QApplication
 
+    from sorting.drivers import make_camera
     from sorting.gui.main_window import MainWindow
     from sorting.replay import ReplaySource
 
-    camera_source = ReplaySource(args.replay) if args.replay else None
+    # 카메라 선택: --camera 가 우선, 없으면 --replay, 둘 다 없으면 실제 카메라
+    camera_source = None
+    if args.camera:
+        camera_source = make_camera(args.camera, path=args.replay or "shots")
+        print("[카메라]", getattr(camera_source, "describe", args.camera))
+    elif args.replay:
+        camera_source = ReplaySource(args.replay)
 
     if real:
         print("\n⚠ 실물 모드입니다. 작업면에 손을 넣지 마세요.")
@@ -53,7 +65,7 @@ def main(argv=None) -> int:
 
     app = QApplication(sys.argv[:1])
     window = MainWindow(real=real, slow=args.slow,
-                        camera_source=camera_source)
+                        camera_source=camera_source, robot_driver=args.robot)
     window.show()
     return app.exec()
 

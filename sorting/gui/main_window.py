@@ -34,7 +34,7 @@ _EVENT_TEXT = {
 
 class MainWindow(QMainWindow):
     def __init__(self, real: bool = False, slow: bool = False,
-                 camera_source=None):
+                 camera_source=None, robot_driver: str | None = None):
         super().__init__()
         self.setWindowTitle(
             f"SO-ARM101 색 분류 스테이션 — {'실물' if real else '시뮬'}")
@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         self.workspace = Workspace.load()
 
         self._build_ui()
-        self._start_workers(real, slow, camera_source)
+        self._start_workers(real, slow, camera_source, robot_driver)
 
     # ── 화면 ──────────────────────────────────────────────────────────────
     def _build_ui(self) -> None:
@@ -104,7 +104,8 @@ class MainWindow(QMainWindow):
             return None            # 캘리브레이션 전에도 화면은 뜨게 한다
 
     # ── 스레드 ────────────────────────────────────────────────────────────
-    def _start_workers(self, real: bool, slow: bool, camera_source) -> None:
+    def _start_workers(self, real: bool, slow: bool, camera_source,
+                       robot_driver: str | None = None) -> None:
         self.camera_worker = CameraWorker(source=camera_source, safety=self.safety,
                                           watchdog=self.watchdog)
         self.camera_worker.sceneReady.connect(self._on_scene)
@@ -114,7 +115,8 @@ class MainWindow(QMainWindow):
         self.pipeline_worker = PipelineWorker(
             real=real, slow=slow,
             obs_source=self.camera_worker.latest,
-            mapper=self.mapper, stats=self.stats, watchdog=self.watchdog)
+            mapper=self.mapper, stats=self.stats, watchdog=self.watchdog,
+            driver=robot_driver)
         self.pipeline_worker.stateChanged.connect(self.panel.set_state)
         self.pipeline_worker.jointsChanged.connect(self.twin_view.update_joints)
         self.pipeline_worker.event.connect(self._on_event)

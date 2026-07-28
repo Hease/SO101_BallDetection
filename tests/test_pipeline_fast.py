@@ -57,7 +57,9 @@ def test_sorts_every_ball_then_finishes():
 
 def test_place_follows_moved_bin():
     """★ 과제 핵심: 사이클 도중 bin 을 옮기면 다음 공은 새 자리로 간다."""
-    world = FakeWorld(balls=[("red", 300, 240), ("red", 320, 250)],
+    # 두 공은 실제 지름(40mm)보다 넓게 떨어뜨린다 — 8mm 간격은 물리적으로 불가능하고,
+    # 그러면 "방금 처리한 자리" 쿨다운이 둘을 같은 공으로 본다.
+    world = FakeWorld(balls=[("red", 250, 240), ("red", 420, 260)],
                       bins={"red": (100, 100), "blue": (540, 100)})
     robot = FakeRobot()
     mapper = fake_mapper()
