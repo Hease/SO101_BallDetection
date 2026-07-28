@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
 """30_servo.py — 탑다운 비주얼 서보: 인두기 팁을 타겟(드라이버 끝)에 갖다 댄다.
 
-인두기는 집게에 강체로 고정(테이프). 인두기 팁 마커와 타겟(드라이버 끝) 마커를
+인두기는 집게에 강체 고정(테이프). 인두기 팁 마커와 타겟(드라이버 끝) 마커를
 탑다운으로 함께 보고, H(data/H.npy)로 둘을 '로봇 평면 xy'로 바꿔 오차만큼 팔을
 움직여 팁을 타겟 위로 몰아넣는다(폐루프). xy 가 맞으면 부하가 뛸 때까지 하강 =
 접촉. 팁 오프셋을 계산할 필요가 없다(브리프 §4.2) — 오차를 눈(카메라)이 없앤다.
 
-폐루프라 부호·게인만 맞으면 수렴한다. H 가 픽셀→로봇을 이미 맞춰 두므로 팔을 로봇
-xy 로 +오차만큼 옮기면 팁도 같은 방향으로 간다. 발산하면 GAIN 부호를 뒤집는다.
+하드웨어는 sorting 의 드라이버 계층(ports/drivers)에서 받는다 — 단일 하드웨어
+추상화(팀 합의). 로봇/카메라를 이름으로 갈아끼운다:
+    ROBOT_DRIVER  "so101" 실제 팔/시뮬 · "print" 동작 없이 출력만
+    CAMERA_DRIVER "hp60c" 실제 · "replay" 사진 재생 · "print" 합성 화면
+하드웨어 없이 로직만 볼 땐 둘 다 "print" 로 둔다.
+
+이동·정지·안전은 sorting 층을 그대로 쓴다: 좌표 이동은 RobotController.move_to
+(실측 작업영역·IK 잔차·관절 클램프 3중 방어), 긴급정지는 robot.estop(토크는 안
+끔) + should_abort(이동 한복판에서도 정지), 접촉은 robot.drv 의 부하 급증.
 
 ⚠️ 팔이 자동으로 움직인다. 먼저 MODE="preview"(모션 없음)로 두 마커가 잘 잡히고
    오차 벡터가 맞는지 본 뒤 MODE="servo". 정지는 Enter/Ctrl-C.
@@ -22,16 +29,18 @@ import numpy as np
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
-_SOARM = os.path.join(_ROOT, "soarm_lab")
-for p in (_ROOT, _HERE, _SOARM):
+for p in (_ROOT, _HERE):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from hw import make_robot, make_camera
+from sorting.drivers import make_robot, make_camera
+from sorting.robot import OutOfReach
 import safety
-from ik_core import IKSo101
 
 MODE = "preview"           # "preview"(검출/오차 확인) → "servo"(실제 서보+접촉)
+ROBOT_DRIVER = "so101"     # "so101"(실제/시뮬) 또는 "print"(출력만)
+CAMERA_DRIVER = "hp60c"    # "hp60c" · "replay" · "print"
+REAL = True                # so101 을 실물로(True) / 헤드리스 시뮬로(False)
 
 # ── 마커 Lab (lab_tuner.py 로 맞춰 넣기) ──────────────────────────────────────
 TIP_LAB = ((40, 150, 0), (255, 255, 255))      # 인두기 팁 마커 (예: 빨강 = a 큼)
@@ -41,8 +50,8 @@ MIN_AREA = 120
 # ── 서보 파라미터 ────────────────────────────────────────────────────────────
 GAIN = 0.6                 # 오차→이동 비율(<1). 발산하면 부호 뒤집기. 진동하면 낮추기
 XY_TOL = 0.004             # 이 거리(m) 안이면 정렬 완료
-STEP_CLAMP = 0.012         # 한 번에 움직일 최대 xy(m) — 안전(§10.5)
-MAX_ITERS = 40             # 무한 루프 방지(§10.6)
+STEP_CLAMP = 0.012         # 한 번에 움직일 최대 xy(m) — 안전
+MAX_ITERS = 40             # 무한 루프 방지
 MISS_MAX = 15              # 마커 연속 미검출 허용 횟수
 
 # ── 접근/하강/접촉 ───────────────────────────────────────────────────────────
@@ -51,40 +60,18 @@ Z_HOVER = 0.10             # 정렬 높이(팁이 타겟 위에서 도는 높이
 Z_MIN = 0.01               # 하강 바닥(이보다 밑으론 안 감 — 안전)
 Z_STEP = 0.004             # 접촉 탐색 하강 간격(m)
 
-# ── 속도/타이밍 ──────────────────────────────────────────────────────────────
-SPEED = 400
-ACC = 20
-MOVE_SETTLE = 0.7          # 서보는 잦은 소이동이라 짧게
-SEED = (0, 30, -45, 0, 0)
-
 H_PATH = os.path.join(_ROOT, "data", "H.npy")
 DRAW = {"tip": (0, 0, 255), "target": (255, 0, 0)}
-_ik = IKSo101()
 
 
-# ── 로봇 ─────────────────────────────────────────────────────────────────────
-def prep_arm(be):
-    drv = be.drv
-    if not drv.ping(1):
-        raise SystemExit("서보 응답 없음(id1) — 로봇 전원/케이블/포트 확인.")
-    for sid in (1, 2, 3, 4, 5):
-        drv.set_torque(sid, True)
-        drv.set_acceleration(sid, ACC)
-        drv.set_speed(sid, SPEED)
-
-
-def goto(be, est, x, y, z):
-    """손끝을 (x,y,z)로(아래보기). 긴급정지·도달·관절한계 검사."""
+# ── 이동 (sorting RobotController 사용) ──────────────────────────────────────
+def goto(robot, est, x, y, z):
+    """손끝을 (x,y,z)로(아래보기). move_to 가 작업영역·IK·관절 3중 방어를 통과시킨다."""
     est.check()
-    angles, err = _ik.solve([float(x), float(y), float(z)],
-                            seed_deg=list(SEED), down=True)
-    if err > 0.12:
-        raise ValueError(f"도달 불가 ({x:.3f},{y:.3f},{z:.3f}) 잔차 {err*1000:.0f}mm")
-    bad = safety.check_joint_limits(angles)
-    if bad:
-        raise safety.Stopped(f"관절 한계 초과로 목표 거부: {bad}")
-    be.move(angles, secs=MOVE_SETTLE)
-    time.sleep(MOVE_SETTLE)
+    try:
+        robot.move_to([float(x), float(y), float(z)], down=True)
+    except OutOfReach as exc:
+        raise safety.Stopped(f"도달 불가: {exc}")
 
 
 # ── 검출 ─────────────────────────────────────────────────────────────────────
@@ -144,7 +131,7 @@ def annotate(bgr, tp, gp, err):
 def preview(H):
     print("preview: 두 마커 검출/오차 확인 (로봇 안 움직임). q 종료.")
     win = "servo preview (q=quit)"
-    with make_camera() as cam:
+    with make_camera(CAMERA_DRIVER) as cam:
         last = 0
         while True:
             rgb, _d, last = cam.read_blocking(last)
@@ -159,15 +146,17 @@ def preview(H):
     cv2.destroyAllWindows()
 
 
-def servo(be, est, H):
+def servo(robot, est, H):
     """팁을 타겟 위로 정렬(폐루프) → 부하로 접촉까지 하강 → 후퇴."""
+    robot.should_abort = lambda: est.stopped        # 이동 한복판에서도 즉시 선다
+    guard = safety.LoadGuard(robot.drv) if getattr(robot, "drv", None) else None
     cur = list(START_XY)
-    goto(be, est, cur[0], cur[1], Z_HOVER)          # 시작 hover
+    goto(robot, est, cur[0], cur[1], Z_HOVER)       # 시작 hover
     wd = safety.FrameWatchdog()
     last = 0
     miss = 0
     aligned = False
-    with make_camera() as cam:
+    with make_camera(CAMERA_DRIVER) as cam:
         for it in range(MAX_ITERS):
             est.check()
             rgb, _d, last = cam.read_blocking(last)
@@ -192,27 +181,31 @@ def servo(be, est, H):
             dx, dy = clamp_vec(GAIN * ex, GAIN * ey, STEP_CLAMP)
             cur[0] += dx
             cur[1] += dy
-            goto(be, est, cur[0], cur[1], Z_HOVER)
+            goto(robot, est, cur[0], cur[1], Z_HOVER)
     if not aligned:
         raise safety.Stopped(f"{MAX_ITERS}회 안에 수렴 실패 — GAIN/부호 확인")
 
-    # ── 접촉까지 하강 (부하 감시) ─────────────────────────────────────────────
-    guard = safety.LoadGuard(be.drv)
-    guard.baseline()
-    print("  하강하며 접촉 탐색...", "baseline", guard.base)
+    # ── 접촉까지 하강 (부하 감시 — 실물 so101 에서만) ─────────────────────────
+    if guard is not None:
+        guard.baseline()
+        print("  하강하며 접촉 탐색...", "baseline", guard.base)
+    else:
+        print("  (부하 센서 없음 — 접촉 감지 없이 Z_MIN 까지 하강)")
     z = Z_HOVER
     while z > Z_MIN:
         est.check()
-        if guard.overloaded():
-            raise safety.Stopped(f"과부하(≥{guard.abort}) — 즉시정지")
-        if guard.contacted():
-            print("  ★ 접촉 감지 — 유지 후 후퇴")
-            break
+        if guard is not None:
+            if guard.overloaded():
+                raise safety.Stopped(f"과부하(≥{guard.abort}) — 즉시정지")
+            if guard.contacted():
+                print("  ★ 접촉 감지 — 유지 후 후퇴")
+                break
         z -= Z_STEP
-        goto(be, est, cur[0], cur[1], z)
-        print(f"    z={z*1000:.0f}mm  부하상승 {guard.peak_rise():+d}")
+        goto(robot, est, cur[0], cur[1], z)
+        rise = guard.peak_rise() if guard is not None else 0
+        print(f"    z={z*1000:.0f}mm  부하상승 {rise:+d}")
     time.sleep(0.6)
-    goto(be, est, cur[0], cur[1], Z_HOVER)          # 후퇴
+    goto(robot, est, cur[0], cur[1], Z_HOVER)        # 후퇴
     print("완료.")
 
 
@@ -225,20 +218,21 @@ def main():
         return
     if MODE == "servo":
         if H is None:
-            raise SystemExit(f"{H_PATH} 없음 — 03_calib_auto.py 로 먼저 캘리브.")
-        be = make_robot()
-        prep_arm(be)
-        est = safety.EStop(on_stop=lambda: be.drv.set_all_torque(False))
+            raise SystemExit(f"{H_PATH} 없음 — vision/03_calib_auto.py 로 먼저 캘리브.")
+        robot = make_robot(ROBOT_DRIVER, real=REAL)
+        est = safety.EStop(on_stop=lambda: robot.estop())
         print("[안전] 작업면에서 손을 치우세요. 정지는 Enter/Ctrl-C.")
         input("서보 시작하려면 Enter > ")
-        est.start()                                 # 확인 뒤 watcher 가동
+        est.start()                                  # 확인 뒤 watcher 가동
         try:
-            servo(be, est, H)
+            servo(robot, est, H)
         except safety.Stopped as e:
             print(f"\n중단: {e}")
-            be.drv.set_all_torque(False)
+            robot.estop()
         except KeyboardInterrupt:
             est.trip("Ctrl-C")
+        finally:
+            robot.close()
         return
     raise SystemExit(f"알 수 없는 MODE: {MODE!r} (preview 또는 servo)")
 
