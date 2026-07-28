@@ -5,13 +5,17 @@
 driver_sdk 로 STS3215 서보에 직접 명령한다.
 관절 id: 1 base·2 shoulder·3 elbow·4 wrist·5 roll·6 gripper. 각도=도, 0=중앙.
 """
+import os
 import numpy as np
 from fk_core import FKSo101, ARM_JOINT_NAMES
 from driver_sdk import STS3215Driver, JOINT_LIMITS, position_from_fraction
 
+# 포트는 자주 바뀐다(ttyACM1→ACM0…). 하드코딩 대신 env SOARM_PORT, 없으면 ttyACM0.
+DEFAULT_PORT = os.environ.get("SOARM_PORT", "/dev/ttyACM0")
+
 
 class RealBackend:
-    def __init__(self, port="/dev/ttyACM1"):
+    def __init__(self, port=DEFAULT_PORT):
         lim = FKSo101().limits_deg()               # 관절한계(도) — 명령 전 클램프
         self._lo = [lim[n][0] for n in ARM_JOINT_NAMES]
         self._hi = [lim[n][1] for n in ARM_JOINT_NAMES]
