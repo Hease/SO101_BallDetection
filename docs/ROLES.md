@@ -23,6 +23,7 @@
   `sorting/setup_zone.py`
 - 하는 일: 경계 훑기·높이·그리퍼·포즈 측정, **수동 입력 폴백**, `calib report`
 - 왜 독립적인가: 기존 `RobotController` 와 FK 만 쓴다. 다른 트랙의 결과가 필요 없다.
+- 납땜 몫: `H` 캘리브(`vision/03_calib_auto.py`), 마커 Lab 확정, 작업면 높이
 - 테스트: `test_calib.py` · `test_teach.py`
 - 발표 담당 장면: 1 · 2 · 3
 
@@ -30,24 +31,28 @@
 로봇이 하면 안 되는 일을 막는 모든 것.
 
 - 파일: `sorting/workspace.py` · `sorting/watchdog.py` · `sorting/safety.py` ·
-  `sorting/robot.py`(3중 방어 부분)
-- 하는 일: 도달 한계 집행, 딜레이 3단계 대응, E-STOP, 결함 주입
+  `sorting/robot.py`(3중 방어 부분) · **`solder/safety.py`**
+- 하는 일: 도달 한계 집행, 딜레이 대응, E-STOP, 결함 주입,
+  **접촉/과부하 판정(`LoadGuard`)**, 프레임 정지 감시
 - 왜 독립적인가: 워치독은 **타임스탬프만 받는 순수 로직**이라 의존이 0 이다.
   작업영역은 폴리곤을 *받아서* 판정하므로 A 의 측정 완료를 기다리지 않는다.
 - 테스트: `test_workspace.py` · `test_watchdog.py` · `test_safety_integration.py`
-- 발표 담당 장면: 6 · 7 · 8
+- 발표 담당 장면: 7 · 8 · 9
+- **다음 과제**: 4단계 워치독을 서보 루프에도 붙이기 (`docs/DEV.md` 참고)
 
 ### C — 비전 · GUI · 문서
 보이는 것과 남는 것.
 
-- 파일: `sorting/vision.py` · `sorting/tracking.py` · `sorting/lab_sample.py` ·
-  `sorting/gui/*` · `docs/*`
-- 하는 일: 색·면적 측정 도구, 화면 통합(경계선·지연상태·출처 배지), 문서 4종,
-  시나리오 리허설
-- 왜 독립적인가: 폴리곤과 상태를 *받아서* 그린다. 가짜 값으로 먼저 그려두면
-  A·B 가 실제 값을 넣는 순간 그대로 동작한다.
+- 파일: **`solder/30_servo.py`**(검출·서보 루프) · `vision/lab_tuner.py` ·
+  `sorting/vision.py` · `sorting/tracking.py` · `sorting/gui/*` · `docs/*`
+- 하는 일: 마커 검출, **비주얼 서보 수렴(GAIN·XY_TOL 튜닝)**, 화면 통합
+  (오차 화살표·경계선·출처 배지), 문서 4종, 시나리오 리허설
+- 왜 독립적인가: 이동은 `robot.move_to` 를 *호출만* 한다. 폴리곤과 상태를
+  *받아서* 그린다. 가짜 값으로 먼저 그려두면 A·B 가 실제 값을 넣는 순간
+  그대로 동작한다.
 - 테스트: `test_vision.py` · `test_gui.py`
-- 발표 담당 장면: 4 · 5 + 진행
+- 발표 담당 장면: 4 · 5 · 6 · 10 · 11 + 진행
+- **다음 과제**: `30_servo` 순수 함수 테스트 (`clamp_vec` · `detect_pixel` · 수렴)
 
 **C 가 겸하는 일**: 발표 3시간 전 요구사항이 추가되면 `docs/DEV.md` 의
 "새 요구사항이 오면 어디를 고치나" 표로 **변경 영향범위를 판정**하고 회귀
@@ -55,24 +60,26 @@
 
 ## 공유 파일 충돌 방지
 
-`pipeline.py` 와 `gui/main_window.py` 두 곳만 셋이 함께 건드린다. 훅 지점을 미리
-뚫어두어 트랙당 한두 줄만 채우면 되게 했다.
+`30_servo.py` · `pipeline.py` · `gui/main_window.py` 세 곳만 셋이 함께 건드린다.
+훅 지점을 미리 뚫어두어 트랙당 한두 줄만 채우면 되게 했다.
 
 | 파일 | A | B | C |
 |---|---|---|---|
+| `30_servo.py` | 상단 Lab·H 상수 | `goto` 의 안전 훅 · `est`/`guard` 배선 | 검출·서보 루프 전체 |
 | `pipeline.py` | — | `_should_abort` · `_wait_for_latency` | 이벤트 이름 |
 | `gui/main_window.py` | 캘리브 패널 연결 | 워치독·E-STOP 연결 | 레이아웃 전체 |
 
 같은 파일을 만질 때는 **먼저 말하고** 만진다. 셋 다 각자 브랜치에서 작업하고
-`Feroninn` 으로 합친다.
+`integration` 으로 합친다.
 
 ## 일정 (역순으로 잡는다)
 
 | 시점 | 할 일 |
 |---|---|
 | D-3 | 각 트랙 구현 + 자기 테스트 초록 |
-| D-2 | 통합 — `Feroninn` 에 합치고 전체 회귀, GUI 배선 확인 |
-| D-1 | **실물 캘리브레이션 전부 수행** (`calib report` 가 깨끗해질 때까지) |
+| D-2 | 통합 — `integration` 에 합치고 전체 회귀, 배선 확인 |
+| D-1 | **실물 캘리브레이션 전부 수행** (`calib report` 가 깨끗해질 때까지) + `H` 재생성 |
+| D-1 | **납땜 실측**: 마커 Lab 확정 → `GAIN` 부호·게인 → `LOAD_CONTACT` |
 | D-1 저녁 | 시나리오 전체 리허설 (실패 대비책 포함) |
 | D-Day −3h | 추가 요구사항 수령 → 영향범위 판정 → 구현 → 회귀 |
 | D-Day | 발표 |
