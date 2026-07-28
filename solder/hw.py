@@ -155,7 +155,7 @@ class MockRobot:
         print(f"[MOCK-ROBOT] grip({float(frac):.2f})  (0=닫힘 1=열림)")
 
     def move(self, angles_deg, grip=None, secs=None):
-        print(f"[MOCK-ROBOT] move({[round(a,1) for a in angles_deg]}, secs={secs})")
+        print(f"[MOCK-ROBOT] move({[round(float(a), 1) for a in angles_deg]}, secs={secs})")
 
     def ee(self):
         return np.zeros(3)
